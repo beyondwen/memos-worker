@@ -1,0 +1,24 @@
+name = "memos-worker"
+main = "src/index.ts"
+compatibility_date = "2026-05-20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "memos-db"
+database_id = "59e01dfb-26a0-43db-8eed-4eca5f88fd33"
+
+[[r2_buckets]]
+binding = "MEMOS_BUCKET"
+bucket_name = "memos-storage"
+
+[durable_objects]
+bindings = [
+  { name = "SSE_HUB", class_name = "SSEHub" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SSEHub"]
+
+[vars]
+ENVIRONMENT = "production"
