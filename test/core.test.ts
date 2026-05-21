@@ -7,6 +7,7 @@ import { normalizeTagName, replaceTagInContent } from "../src/services/tags";
 import { auditActionLabel } from "../src/services/audit";
 import { mapOriginalMemoToImport, normalizeMemosBaseUrl, summarizeOriginalMemos } from "../src/services/migration";
 import { parseAiRelationSuggestions, rankRelationCandidates } from "../src/services/aiRelations";
+import { mergeAiSettingsUpdate, sanitizeAiSettingsForClient } from "../src/services/aiSettings";
 
 describe("password hashing", () => {
   it("verifies a valid PBKDF2 password and rejects a wrong password", async () => {
@@ -323,5 +324,35 @@ describe("AI relation helpers", () => {
         source: "ai",
       },
     ]);
+  });
+});
+
+describe("AI settings helpers", () => {
+  it("sanitizes AI settings before returning them to the browser", () => {
+    expect(sanitizeAiSettingsForClient({
+      baseUrl: "https://api.example.com/v1",
+      model: "test-model",
+      apiKey: "secret-key",
+    })).toEqual({
+      baseUrl: "https://api.example.com/v1",
+      model: "test-model",
+      configured: true,
+    });
+  });
+
+  it("keeps the previous API key when updates leave it blank", () => {
+    expect(mergeAiSettingsUpdate({
+      baseUrl: "https://old.example.com/v1",
+      model: "old-model",
+      apiKey: "old-key",
+    }, {
+      baseUrl: "https://new.example.com/v1",
+      model: "new-model",
+      apiKey: "   ",
+    })).toEqual({
+      baseUrl: "https://new.example.com/v1",
+      model: "new-model",
+      apiKey: "old-key",
+    });
   });
 });

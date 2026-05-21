@@ -93,6 +93,12 @@ interface MigrationResult extends MigrationPreview {
   skipped: number;
 }
 
+interface AiSettings {
+  baseUrl: string;
+  model: string;
+  configured: boolean;
+}
+
 interface TagItem {
   name: string;
   count: number;
@@ -160,6 +166,12 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
   const [migrationPreviewing, setMigrationPreviewing] = useState(false);
   const [migrationImporting, setMigrationImporting] = useState(false);
+  const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
+  const [aiModel, setAiModel] = useState("gpt-4o-mini");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiConfigured, setAiConfigured] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
   const [tags, setTags] = useState<TagItem[]>([]);
   const [tagFrom, setTagFrom] = useState("");
   const [tagTo, setTagTo] = useState("");
@@ -260,6 +272,19 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   }, [currentUser]);
 
+  const fetchAiSettings = useCallback(async () => {
+    if (!currentUser || currentUser.role !== "ADMIN") return;
+    try {
+      const data = await api<{ settings: AiSettings }>("/api/v1/ai/settings");
+      setAiBaseUrl(data.settings.baseUrl);
+      setAiModel(data.settings.model);
+      setAiConfigured(data.settings.configured);
+      setAiApiKey("");
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
   const fetchTags = useCallback(async () => {
     if (!currentUser) return;
     try {
@@ -285,10 +310,11 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     fetchWebhookDeliveries();
     fetchUnattachedAttachments();
     fetchBackups();
+    fetchAiSettings();
     fetchTags();
     fetchAuditLogs();
     fetchOverview();
-  }, [fetchAuditLogs, fetchBackups, fetchOverview, fetchTags, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
+  }, [fetchAiSettings, fetchAuditLogs, fetchBackups, fetchOverview, fetchTags, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
 
   if (!currentUser) return null;
 
@@ -476,6 +502,46 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       notify(`导入失败：${(err as Error).message}`, "error");
     } finally {
       input.value = "";
+    }
+  };
+
+  const aiSettingsPayload = () => ({
+    baseUrl: aiBaseUrl.trim(),
+    model: aiModel.trim(),
+    apiKey: aiApiKey.trim(),
+  });
+
+  const handleSaveAiSettings = async () => {
+    setAiSaving(true);
+    try {
+      const data = await api<{ settings: AiSettings }>("/api/v1/ai/settings", {
+        method: "PATCH",
+        body: JSON.stringify(aiSettingsPayload()),
+      });
+      setAiBaseUrl(data.settings.baseUrl);
+      setAiModel(data.settings.model);
+      setAiConfigured(data.settings.configured);
+      setAiApiKey("");
+      notify("AI 设置已保存", "success");
+    } catch (err) {
+      notify(`保存 AI 设置失败：${(err as Error).message}`, "error");
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const handleTestAiSettings = async () => {
+    setAiTesting(true);
+    try {
+      await api("/api/v1/ai/settings/test", {
+        method: "POST",
+        body: JSON.stringify(aiSettingsPayload()),
+      });
+      notify("AI 连接测试通过", "success");
+    } catch (err) {
+      notify(`AI 连接测试失败：${(err as Error).message}`, "error");
+    } finally {
+      setAiTesting(false);
     }
   };
 
@@ -983,6 +1049,57 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               <button class="btn btn-danger btn-sm" onClick={handleRestoreBackup}>恢复此备份</button>
             </div>
           )}
+        </div>
+
+        <div class="settings-section">
+          <h2>AI 设置</h2>
+          <div class="ai-settings-grid">
+            <div class="form-group">
+              <label class="form-label">API Base URL</label>
+              <input
+                class="form-input"
+                type="url"
+                value={aiBaseUrl}
+                onInput={(e) => setAiBaseUrl((e.target as HTMLInputElement).value)}
+                placeholder="https://api.openai.com/v1"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">模型</label>
+              <input
+                class="form-input"
+                value={aiModel}
+                onInput={(e) => setAiModel((e.target as HTMLInputElement).value)}
+                placeholder="gpt-4o-mini"
+              />
+            </div>
+            <div class="form-group ai-key-field">
+              <label class="form-label">API Key</label>
+              <input
+                class="form-input"
+                type="password"
+                value={aiApiKey}
+                onInput={(e) => setAiApiKey((e.target as HTMLInputElement).value)}
+                placeholder={aiConfigured ? "已配置，留空则不修改" : "请输入 API Key"}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-secondary" onClick={handleTestAiSettings} disabled={aiTesting || !aiBaseUrl.trim() || !aiModel.trim()}>
+              {aiTesting ? "测试中..." : "测试连接"}
+            </button>
+            <button class="btn btn-primary" onClick={handleSaveAiSettings} disabled={aiSaving || !aiBaseUrl.trim() || !aiModel.trim()}>
+              {aiSaving ? "保存中..." : "保存 AI 设置"}
+            </button>
+          </div>
+          <div class="migration-summary">
+            <span>{aiConfigured ? "API Key 已配置" : "API Key 未配置"}</span>
+            <span>{aiModel || "未设置模型"}</span>
+          </div>
+          <div class="muted-line">
+            API Key 不会回显；留空保存时会保留已有 Key。
+          </div>
         </div>
 
         <div class="settings-section">

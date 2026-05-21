@@ -1,6 +1,7 @@
 import type { DbMemo, Env, Viewer } from "../types";
 import { HttpError, json, safeJsonParse } from "../utils";
 import { canReadMemo, getMemoByUid } from "./memo";
+import { resolveAiRuntimeSettings } from "./aiSettings";
 
 const RECENT_CANDIDATE_LIMIT = 80;
 const AI_CANDIDATE_LIMIT = 30;
@@ -115,8 +116,9 @@ export async function suggestMemoRelations(env: Env, viewer: Viewer, memoUid: st
     { uid: candidate.uid, content: candidate.content }
   ]));
 
-  const aiSuggestions = env.AI_API_KEY
-    ? await requestAiSuggestions(env, memo, ranked, candidateMap).catch(() => [])
+  const aiSettings = await resolveAiRuntimeSettings(env);
+  const aiSuggestions = aiSettings.apiKey
+    ? await requestAiSuggestions(aiSettings, memo, ranked, candidateMap).catch(() => [])
     : [];
 
   const suggestions = aiSuggestions.length > 0
@@ -133,21 +135,19 @@ export async function suggestMemoRelations(env: Env, viewer: Viewer, memoUid: st
 }
 
 async function requestAiSuggestions(
-  env: Env,
+  settings: { baseUrl: string; model: string; apiKey: string },
   memo: DbMemo,
   candidates: RankedRelationCandidate[],
   candidateMap: Map<string, Pick<RelationCandidate, "uid" | "content">>
 ): Promise<AiRelationSuggestion[]> {
-  const baseUrl = (env.AI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = env.AI_MODEL || "gpt-4o-mini";
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(`${settings.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${env.AI_API_KEY}`,
+      "Authorization": `Bearer ${settings.apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model,
+      model: settings.model,
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [

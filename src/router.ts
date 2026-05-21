@@ -15,6 +15,7 @@ import { getTimeline } from "./services/timeline";
 import { listAuditLogs } from "./services/audit";
 import { importOriginalMemos, previewOriginalMemosMigration } from "./services/migration";
 import { suggestMemoRelations } from "./services/aiRelations";
+import { getAiSettings, testAiSettings, updateAiSettings } from "./services/aiSettings";
 import { generateRss } from "./rss";
 import { parseFilter } from "./filter";
 import { appHtml } from "./ui";
@@ -58,6 +59,9 @@ export async function route(request: Request, env: Env): Promise<Response> {
     if (url.pathname === "/api/v1/auth/user" && method === "GET") return authUser(env, viewer);
     if (url.pathname === "/api/v1/auth/change-password" && method === "POST") return changePassword(request, env, viewer);
     if (url.pathname === "/api/v1/users/me" && method === "PATCH") return updateMe(request, env, viewer);
+    if (url.pathname === "/api/v1/ai/settings" && method === "GET") return getAiSettings(env, viewer);
+    if (url.pathname === "/api/v1/ai/settings" && method === "PATCH") return updateAiSettings(request, env, viewer);
+    if (url.pathname === "/api/v1/ai/settings/test" && method === "POST") return testAiSettings(request, env, viewer);
 
     // Memos
     if (url.pathname === "/api/v1/memos" && method === "GET") {
