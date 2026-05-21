@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import { MemoCard } from "./MemoCard";
 import type { Memo } from "./MemoCard";
 import type { CurrentUser } from "../App";
 import { buildMemoListPath, type MemoPropertyFilter, type MemoState, type MemoVisibility } from "../memoQuery";
+import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 
 interface MemoListResponse {
   memos: Memo[];
@@ -79,6 +80,24 @@ export function MemoList({
   useEffect(() => {
     fetchMemos();
   }, [fetchMemos, refreshKey]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const source = createMemoEventSource(getToken());
+    if (!source) return;
+    const refresh = (message: MessageEvent) => {
+      try {
+        const event = JSON.parse(message.data);
+        if (shouldRefreshForSseEvent(event)) fetchMemos();
+      } catch {
+        // Ignore malformed SSE payloads.
+      }
+    };
+    for (const type of ["memo.created", "memo.updated", "memo.deleted", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {
+      source.addEventListener(type, refresh);
+    }
+    return () => source.close();
+  }, [currentUser, fetchMemos]);
 
   const handleMemoUpdate = useCallback((updated: Memo) => {
     if (updated.rowStatus !== state) {

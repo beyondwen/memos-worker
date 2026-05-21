@@ -1,4 +1,4 @@
-import type { Env, Viewer, DbMemo } from "../types";
+import type { Env, Viewer, DbMemo, DbAttachment } from "../types";
 import { json, readJson, unixNow, generateUid } from "../utils";
 import { getMemoByUid, canReadMemo, memoWithAttachments } from "./memo";
 import { getUserById } from "../middleware";
@@ -85,5 +85,39 @@ export async function getSharedMemo(env: Env, shareUid: string): Promise<Respons
   `).bind(share.memo_id).first<DbMemo>();
   if (!memo) return json({ error: "Memo not found" }, 404);
 
-  return json({ memo: await memoWithAttachments(env, memo) });
+  const sharedMemo = await memoWithAttachments(env, memo);
+  const attachments = Array.isArray(sharedMemo.attachments)
+    ? sharedMemo.attachments.map((attachment) => ({
+      ...attachment,
+      url: `/api/v1/shares/${encodeURIComponent(shareUid)}/attachments/${encodeURIComponent(String(attachment.uid))}/${encodeURIComponent(String(attachment.filename))}`
+    }))
+    : [];
+
+  return json({ memo: { ...sharedMemo, attachments } });
+}
+
+export async function downloadSharedAttachment(env: Env, shareUid: string, attachmentUid: string): Promise<Response> {
+  const now = unixNow();
+  const attachment = await env.DB.prepare(`
+    SELECT attachment.*
+    FROM attachment
+    JOIN memo_share ON memo_share.memo_id = attachment.memo_id
+    JOIN memo ON memo.id = memo_share.memo_id
+    WHERE memo_share.uid = ?
+      AND attachment.uid = ?
+      AND memo.row_status = 'NORMAL'
+      AND (memo_share.expires_ts IS NULL OR memo_share.expires_ts > ?)
+  `).bind(shareUid, attachmentUid, now).first<DbAttachment>();
+  if (!attachment) return json({ error: "Attachment not found" }, 404);
+
+  const object = await env.MEMOS_BUCKET.get(attachment.reference);
+  if (!object) return json({ error: "File not found" }, 404);
+
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": attachment.type || object.httpMetadata?.contentType || "application/octet-stream",
+      "Content-Disposition": `inline; filename="${attachment.filename}"`,
+      "Cache-Control": "public, max-age=3600"
+    }
+  });
 }

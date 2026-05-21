@@ -3,6 +3,7 @@ import { route } from "preact-router";
 import { api } from "../api";
 import { MarkdownContent } from "./MarkdownContent";
 import { useFeedback } from "./Feedback";
+import { AttachmentList } from "./AttachmentList";
 import type { CurrentUser } from "../App";
 
 export interface Memo {
@@ -278,21 +279,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
         <MarkdownContent content={memo.content} />
       )}
 
-      {memo.attachments && memo.attachments.length > 0 && (
-        <div class="memo-attachments">
-          {memo.attachments.map((att) => (
-            <a
-              key={att.uid}
-              href={att.url}
-              class="memo-attachment"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {att.filename}
-            </a>
-          ))}
-        </div>
-      )}
+      <AttachmentList attachments={memo.attachments} />
 
       {reactions.length > 0 && (
         <div class="memo-reactions">

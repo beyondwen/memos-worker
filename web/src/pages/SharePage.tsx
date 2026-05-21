@@ -1,6 +1,7 @@
 import { useState, useEffect } from "preact/hooks";
 import { api } from "../api";
 import { MarkdownContent } from "../components/MarkdownContent";
+import { AttachmentList } from "../components/AttachmentList";
 import type { Memo } from "../components/MemoCard";
 
 interface SharePageProps {
@@ -80,21 +81,7 @@ export function SharePage({ uid }: SharePageProps) {
 
         <MarkdownContent content={memo.content} />
 
-        {memo.attachments && memo.attachments.length > 0 && (
-          <div class="memo-attachments">
-            {memo.attachments.map((att) => (
-              <a
-                key={att.uid}
-                href={att.url}
-                class="memo-attachment"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {att.filename}
-              </a>
-            ))}
-          </div>
-        )}
+        <AttachmentList attachments={memo.attachments} />
       </div>
 
       <div class="share-footer">

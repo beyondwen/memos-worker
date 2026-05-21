@@ -6,7 +6,7 @@ import { publicUser, listUsers, getUser, updateUser, deleteUser, updateMe, chang
 import { listMemos, createMemo, getMemo, updateMemo, deleteMemo, exportData, importData } from "./services/memo";
 import { uploadAttachment, downloadAttachment, listAttachments } from "./services/attachment";
 import { createComment, listComments, upsertReaction, deleteReaction, listReactions, getRelations, setRelations } from "./services/social";
-import { createShare, listShares, deleteShare, getSharedMemo } from "./services/share";
+import { createShare, listShares, deleteShare, getSharedMemo, downloadSharedAttachment } from "./services/share";
 import { listInbox, updateInboxStatus, deleteInboxItem } from "./services/inbox";
 import { listWebhooks, createWebhook, updateWebhook, deleteWebhook } from "./services/webhook";
 import { generateRss } from "./rss";
@@ -35,6 +35,14 @@ export async function route(request: Request, env: Env): Promise<Response> {
   // Public share access
   const shareTokenMatch = url.pathname.match(/^\/api\/v1\/shares\/([^/]+)$/);
   if (shareTokenMatch && method === "GET") return getSharedMemo(env, decodeURIComponent(shareTokenMatch[1]));
+  const shareAttachmentMatch = url.pathname.match(/^\/api\/v1\/shares\/([^/]+)\/attachments\/([^/]+)\/(.+)$/);
+  if (shareAttachmentMatch && method === "GET") {
+    return downloadSharedAttachment(
+      env,
+      decodeURIComponent(shareAttachmentMatch[1]),
+      decodeURIComponent(shareAttachmentMatch[2])
+    );
+  }
 
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/file/")) {
     const viewer = await currentViewer(request, env);

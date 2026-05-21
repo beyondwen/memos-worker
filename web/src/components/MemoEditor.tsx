@@ -13,14 +13,17 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
   const [initialDraft] = useState(() => loadEditorDraft(storage));
   const [content, setContent] = useState(initialDraft?.content ?? "");
   const [visibility, setVisibility] = useState<MemoVisibility>(initialDraft?.visibility ?? "PRIVATE");
-  const [attachmentUids, setAttachmentUids] = useState<string[]>(initialDraft?.attachmentUids ?? []);
+  const [attachments, setAttachments] = useState<Attachment[]>(
+    () => initialDraft?.attachmentUids.map((uid) => ({ uid, filename: "已保存的附件" })) ?? []
+  );
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const attachmentUids = attachments.map((attachment) => attachment.uid);
 
   useEffect(() => {
     saveEditorDraft(storage, { content, visibility, attachmentUids });
-  }, [attachmentUids, content, storage, visibility]);
+  }, [attachments, content, storage, visibility]);
 
   const handleFile = async (e: Event) => {
     const input = e.target as HTMLInputElement;
@@ -31,7 +34,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         const form = new FormData();
         form.append("file", file);
         const data = await api<{ attachment: Attachment }>("/api/v1/attachments", { method: "POST", body: form });
-        if (data.attachment) setAttachmentUids((p) => [...p, data.attachment.uid]);
+        if (data.attachment) setAttachments((p) => [...p, data.attachment]);
       }
     } catch (err) { notify(`上传失败：${(err as Error).message}`, "error"); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
@@ -47,7 +50,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         body: JSON.stringify({ content: trimmed, visibility, attachmentUids }),
       });
       clearEditorDraft(storage);
-      setContent(""); setAttachmentUids([]); onCreated(data.memo); notify("备忘录已发布", "success");
+      setContent(""); setAttachments([]); onCreated(data.memo); notify("备忘录已发布", "success");
     } catch (err) { notify(`创建失败：${(err as Error).message}`, "error"); }
     finally { setSubmitting(false); }
   };
@@ -92,9 +95,9 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         </button>
 
         {attachmentUids.length > 0 && (
-          <span class="attachment-count">
+          <span class="attachment-count" title={attachments.map((attachment) => attachment.filename).join("\n")}>
             {attachmentUids.length} 个附件
-            <button class="inline-clear" onClick={() => setAttachmentUids([])} aria-label="清空附件">
+            <button class="inline-clear" onClick={() => setAttachments([])} aria-label="清空附件">
               ×
             </button>
           </span>

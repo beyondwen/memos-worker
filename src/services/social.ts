@@ -39,7 +39,10 @@ export async function createComment(request: Request, env: Env, viewer: Viewer, 
     commentUid: uid
   })).run();
 
-  if (comment) await broadcastMemo(env, "memo.created", comment);
+  if (comment) {
+    await broadcastMemo(env, "memo.created", comment);
+    await broadcastMemo(env, "memo.comment.created", parent);
+  }
   return json({ memo: comment ? await memoWithAttachments(env, comment) : null }, 201);
 }
 
@@ -78,6 +81,7 @@ export async function upsertReaction(request: Request, env: Env, viewer: Viewer,
     ON CONFLICT (creator_id, content_type, content_id, reaction_type) DO NOTHING
   `).bind(now, viewer.id, memo.id, reactionType).run();
 
+  await broadcastMemo(env, "reaction.upserted", memo);
   return await listReactionsForMemo(env, memo.id);
 }
 
@@ -95,6 +99,7 @@ export async function deleteReaction(env: Env, viewer: Viewer, memoUid: string, 
   if (viewer.role !== "ADMIN" && row.creator_id !== viewer.id) return json({ error: "Forbidden" }, 403);
 
   await env.DB.prepare("DELETE FROM reaction WHERE id = ?").bind(id).run();
+  await broadcastMemo(env, "reaction.deleted", memo);
   return await listReactionsForMemo(env, memo.id);
 }
 

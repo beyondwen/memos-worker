@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { useFeedback } from "../components/Feedback";
+import { AttachmentList } from "../components/AttachmentList";
+import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 import type { CurrentUser } from "../App";
 import type { Memo, Reaction } from "../components/MemoCard";
 
@@ -70,6 +72,27 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
     fetchComments();
     fetchReactions();
   }, [fetchMemo, fetchComments, fetchReactions]);
+
+  useEffect(() => {
+    if (!currentUser || !uid) return;
+    const source = createMemoEventSource(getToken());
+    if (!source) return;
+    const refresh = (message: MessageEvent) => {
+      try {
+        const event = JSON.parse(message.data);
+        if (!shouldRefreshForSseEvent(event) || event.name !== `memos/${uid}`) return;
+        fetchMemo();
+        fetchComments();
+        fetchReactions();
+      } catch {
+        // Ignore malformed SSE payloads.
+      }
+    };
+    for (const type of ["memo.updated", "memo.deleted", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {
+      source.addEventListener(type, refresh);
+    }
+    return () => source.close();
+  }, [currentUser, fetchComments, fetchMemo, fetchReactions, uid]);
 
   const handleAddComment = async () => {
     if (!uid || !commentContent.trim()) return;
@@ -203,21 +226,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
 
         <MarkdownContent content={memo.content} />
 
-        {memo.attachments && memo.attachments.length > 0 && (
-          <div class="memo-attachments">
-            {memo.attachments.map((att) => (
-              <a
-                key={att.uid}
-                href={att.url}
-                class="memo-attachment"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {att.filename}
-              </a>
-            ))}
-          </div>
-        )}
+        <AttachmentList attachments={memo.attachments} />
 
         {reactions.length > 0 && (
           <div class="memo-reactions">

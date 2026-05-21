@@ -6,6 +6,8 @@ import {
   saveEditorDraft,
   type StorageLike,
 } from "../web/src/editorDraft";
+import { attachmentDisplayMeta } from "../web/src/attachmentView";
+import { shouldRefreshForSseEvent } from "../web/src/sseEvents";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -107,5 +109,39 @@ describe("editor draft storage", () => {
     clearEditorDraft(storage);
 
     expect(loadEditorDraft(storage)).toBeNull();
+  });
+});
+
+describe("attachment display metadata", () => {
+  it("marks image attachments as previewable and formats their size", () => {
+    expect(attachmentDisplayMeta({ filename: "photo.png", type: "image/png", size: 1536 })).toEqual({
+      icon: "IMG",
+      isImage: true,
+      sizeLabel: "1.5 KB",
+      typeLabel: "PNG",
+    });
+  });
+
+  it("falls back to file extension when content type is generic", () => {
+    expect(attachmentDisplayMeta({ filename: "report.pdf", type: "application/octet-stream", size: 2_097_152 })).toEqual({
+      icon: "PDF",
+      isImage: false,
+      sizeLabel: "2 MB",
+      typeLabel: "PDF",
+    });
+  });
+});
+
+describe("SSE refresh policy", () => {
+  it("refreshes memo lists for memo and relation changes", () => {
+    expect(shouldRefreshForSseEvent({ type: "memo.created", name: "memos/a" })).toBe(true);
+    expect(shouldRefreshForSseEvent({ type: "memo.comment.created", name: "memos/a" })).toBe(true);
+    expect(shouldRefreshForSseEvent({ type: "reaction.upserted", name: "memos/a" })).toBe(true);
+  });
+
+  it("ignores malformed events", () => {
+    expect(shouldRefreshForSseEvent(null)).toBe(false);
+    expect(shouldRefreshForSseEvent({ type: "ready", name: "memos/a" })).toBe(false);
+    expect(shouldRefreshForSseEvent({ type: "memo.created" })).toBe(false);
   });
 });
