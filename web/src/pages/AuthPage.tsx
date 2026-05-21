@@ -21,6 +21,7 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
   const [password, setPassword] = useState("");
   const [nickname, setNickname] = useState("");
   const [error, setError] = useState("");
+  const [instanceError, setInstanceError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -28,12 +29,37 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
       route("/", true);
       return;
     }
+    setInstanceError("");
     api<InstanceInfo>("/api/v1/instance")
       .then((data) => setSetupRequired(data.setupRequired))
-      .catch(() => setSetupRequired(false));
+      .catch((err) => {
+        setInstanceError((err as Error).message || "无法读取实例状态");
+        setSetupRequired(null);
+      });
   }, [currentUser]);
 
   if (currentUser) return null;
+
+  if (instanceError) {
+    return (
+      <div class="auth-page">
+        <div class="auth-card">
+          <h1 class="auth-title">无法连接实例</h1>
+          <div class="form-error" style={{ marginBottom: "16px", textAlign: "center" }}>
+            {instanceError}
+          </div>
+          <button
+            class="btn btn-primary"
+            type="button"
+            style={{ width: "100%" }}
+            onClick={() => window.location.reload()}
+          >
+            重新加载
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (setupRequired === null) {
     return (
