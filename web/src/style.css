@@ -601,6 +601,52 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .pat-token-title {
   margin-bottom: 6px; font-weight: 700; color: var(--ink);
 }
+.settings-subtitle {
+  margin: 18px 0 10px;
+  font-size: 0.875rem; font-weight: 700; color: var(--ink);
+}
+.webhook-delivery-panel {
+  margin-top: 18px;
+}
+.webhook-delivery-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.webhook-delivery-item {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 10px 12px;
+  background: var(--paper-tint); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.webhook-delivery-main,
+.webhook-delivery-meta {
+  min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+}
+.webhook-delivery-meta {
+  justify-content: flex-end;
+  color: var(--muted); font-size: 0.75rem;
+}
+.delivery-status {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700;
+}
+.delivery-status.success { background: #ecfdf5; color: #047857; }
+.delivery-status.failed { background: #fef2f2; color: var(--danger); }
+.delivery-event {
+  font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink);
+}
+.delivery-name {
+  color: var(--muted); font-size: 0.8rem;
+}
+.delivery-time {
+  color: #8e887d; font-size: 0.75rem;
+}
+.delivery-error {
+  max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--danger);
+}
 .inline-form {
   display: flex; gap: 8px; align-items: end;
 }

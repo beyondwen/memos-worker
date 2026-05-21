@@ -15,6 +15,7 @@ import { formatInboxItem } from "../web/src/inboxView";
 import { buildShareUrl, normalizeWebhookForm } from "../web/src/integrationHelpers";
 import { buildBulkMemoRequest, bulkMemoActionLabel } from "../web/src/bulkActions";
 import { MEMO_WEBHOOK_EVENTS } from "../src/webhookEvents";
+import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../web/src/webhookDeliveryView";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -222,6 +223,28 @@ describe("webhook event catalog", () => {
       "share.created",
       "share.deleted",
     ]));
+  });
+});
+
+describe("webhook delivery view helpers", () => {
+  it("labels successful deliveries with HTTP status", () => {
+    expect(webhookDeliveryStatusMeta({ status: "SUCCESS", statusCode: 204 })).toEqual({
+      label: "成功 204",
+      className: "success",
+      canRetry: false,
+    });
+  });
+
+  it("labels failed deliveries as retryable", () => {
+    expect(webhookDeliveryStatusMeta({ status: "FAILED", statusCode: null })).toEqual({
+      label: "失败",
+      className: "failed",
+      canRetry: true,
+    });
+  });
+
+  it("formats delivery time from unix seconds", () => {
+    expect(webhookDeliveryTimeLabel(1779345600)).toContain("2026");
   });
 });
 

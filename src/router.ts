@@ -8,7 +8,7 @@ import { uploadAttachment, downloadAttachment, listAttachments } from "./service
 import { createComment, listComments, upsertReaction, deleteReaction, listReactions, getRelations, setRelations } from "./services/social";
 import { createShare, listShares, deleteShare, getSharedMemo, downloadSharedAttachment } from "./services/share";
 import { listInbox, updateInboxStatus, deleteInboxItem } from "./services/inbox";
-import { listWebhooks, createWebhook, updateWebhook, deleteWebhook } from "./services/webhook";
+import { listWebhooks, createWebhook, updateWebhook, deleteWebhook, listWebhookDeliveries, retryWebhookDelivery } from "./services/webhook";
 import { generateRss } from "./rss";
 import { parseFilter } from "./filter";
 import { appHtml } from "./ui";
@@ -144,6 +144,12 @@ export async function route(request: Request, env: Env): Promise<Response> {
     // Webhooks
     if (url.pathname === "/api/v1/webhooks" && method === "GET") return listWebhooks(env, viewer);
     if (url.pathname === "/api/v1/webhooks" && method === "POST") return createWebhook(request, env, viewer);
+    if (url.pathname === "/api/v1/webhooks/deliveries" && method === "GET") return listWebhookDeliveries(request, env, viewer);
+
+    const webhookDeliveryRetryMatch = url.pathname.match(/^\/api\/v1\/webhooks\/deliveries\/([^/]+)\/retry$/);
+    if (webhookDeliveryRetryMatch && method === "POST") {
+      return retryWebhookDelivery(env, viewer, decodeURIComponent(webhookDeliveryRetryMatch[1]));
+    }
 
     const webhookMatch = url.pathname.match(/^\/api\/v1\/webhooks\/([^/]+)$/);
     if (webhookMatch) {

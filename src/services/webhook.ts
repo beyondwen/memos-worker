@@ -1,6 +1,24 @@
 import type { Env, Viewer } from "../types";
 import { json, readJson, unixNow } from "../utils";
 
+export type WebhookDeliveryStatus = "SUCCESS" | "FAILED";
+
+interface DbWebhookDelivery {
+  id: number;
+  webhook_id: number;
+  creator_id: number;
+  created_ts: number;
+  event: string;
+  status: WebhookDeliveryStatus;
+  status_code: number | null;
+  duration_ms: number;
+  error: string;
+  request_body: string;
+  response_body: string;
+  webhook_name?: string;
+  webhook_url?: string;
+}
+
 export async function listWebhooks(env: Env, viewer: Viewer): Promise<Response> {
   const rows = await env.DB.prepare(`
     SELECT * FROM webhook WHERE creator_id = ? ORDER BY created_ts DESC
@@ -18,6 +36,51 @@ export async function listWebhooks(env: Env, viewer: Viewer): Promise<Response> 
       updatedTs: w.updated_ts
     }))
   });
+}
+
+export async function listWebhookDeliveries(request: Request, env: Env, viewer: Viewer): Promise<Response> {
+  const url = new URL(request.url);
+  const webhookId = Number(url.searchParams.get("webhookId") ?? "");
+  const where = ["webhook_delivery.creator_id = ?"];
+  const params: unknown[] = [viewer.id];
+  if (Number.isFinite(webhookId) && webhookId > 0) {
+    where.push("webhook_delivery.webhook_id = ?");
+    params.push(webhookId);
+  }
+
+  const rows = await env.DB.prepare(`
+    SELECT webhook_delivery.*, webhook.name AS webhook_name, webhook.url AS webhook_url
+    FROM webhook_delivery
+    JOIN webhook ON webhook.id = webhook_delivery.webhook_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY webhook_delivery.created_ts DESC, webhook_delivery.id DESC
+    LIMIT 50
+  `).bind(...params).all<DbWebhookDelivery>();
+
+  return json({ deliveries: rows.results.map(publicWebhookDelivery) });
+}
+
+export async function retryWebhookDelivery(env: Env, viewer: Viewer, deliveryId: string): Promise<Response> {
+  const id = Number(deliveryId);
+  if (!Number.isFinite(id)) return json({ error: "Invalid delivery ID" }, 400);
+
+  const delivery = await env.DB.prepare(`
+    SELECT webhook_delivery.*, webhook.name AS webhook_name, webhook.url AS webhook_url
+    FROM webhook_delivery
+    JOIN webhook ON webhook.id = webhook_delivery.webhook_id
+    WHERE webhook_delivery.id = ? AND webhook_delivery.creator_id = ?
+  `).bind(id, viewer.id).first<DbWebhookDelivery>();
+  if (!delivery || !delivery.webhook_url) return json({ error: "Webhook delivery not found" }, 404);
+
+  const retried = await sendAndRecordWebhook(env, {
+    webhookId: delivery.webhook_id,
+    creatorId: viewer.id,
+    url: delivery.webhook_url,
+    event: delivery.event,
+    requestBody: delivery.request_body
+  });
+
+  return json({ delivery: retried ? publicWebhookDelivery({ ...retried, webhook_name: delivery.webhook_name, webhook_url: delivery.webhook_url }) : null });
 }
 
 export async function createWebhook(request: Request, env: Env, viewer: Viewer): Promise<Response> {
@@ -74,19 +137,119 @@ export async function deleteWebhook(env: Env, viewer: Viewer, webhookId: string)
 
 export async function fireWebhooks(env: Env, creatorId: number, event: string, payload: unknown): Promise<void> {
   const rows = await env.DB.prepare(`
-    SELECT url FROM webhook WHERE creator_id = ? AND row_status = 'NORMAL'
-  `).bind(creatorId).all<{ url: string }>();
+    SELECT id, creator_id, url FROM webhook WHERE creator_id = ? AND row_status = 'NORMAL'
+  `).bind(creatorId).all<{ id: number; creator_id: number; url: string }>();
 
   const body = JSON.stringify({ event, timestamp: unixNow(), payload });
   for (const row of rows.results) {
-    try {
-      await fetch(row.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body
-      }).catch(() => undefined);
-    } catch {
-      // ignore webhook failures
-    }
+    await sendAndRecordWebhook(env, {
+      webhookId: row.id,
+      creatorId: row.creator_id,
+      url: row.url,
+      event,
+      requestBody: body
+    });
   }
+}
+
+export function deliveryStatusFromResponse(statusCode: number | null): WebhookDeliveryStatus {
+  return statusCode !== null && statusCode >= 200 && statusCode < 300 ? "SUCCESS" : "FAILED";
+}
+
+export function formatWebhookError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return "Unknown webhook error";
+}
+
+function publicWebhookDelivery(delivery: DbWebhookDelivery): Record<string, unknown> {
+  return {
+    id: delivery.id,
+    webhookId: delivery.webhook_id,
+    webhookName: delivery.webhook_name ?? "",
+    webhookUrl: delivery.webhook_url ?? "",
+    createdTs: delivery.created_ts,
+    event: delivery.event,
+    status: delivery.status,
+    statusCode: delivery.status_code,
+    durationMs: delivery.duration_ms,
+    error: delivery.error,
+    responseBody: delivery.response_body,
+  };
+}
+
+async function sendAndRecordWebhook(env: Env, options: {
+  webhookId: number;
+  creatorId: number;
+  url: string;
+  event: string;
+  requestBody: string;
+}): Promise<DbWebhookDelivery | null> {
+  const started = Date.now();
+  let statusCode: number | null = null;
+  let responseBody = "";
+  let error = "";
+
+  try {
+    const response = await fetch(options.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: options.requestBody
+    });
+    statusCode = response.status;
+    responseBody = await response.text().catch(() => "");
+    if (deliveryStatusFromResponse(statusCode) === "FAILED") {
+      error = response.statusText || `HTTP ${statusCode}`;
+    }
+  } catch (err) {
+    error = formatWebhookError(err);
+  }
+
+  const durationMs = Math.max(0, Date.now() - started);
+  const status = deliveryStatusFromResponse(statusCode);
+  try {
+    const result = await env.DB.prepare(`
+      INSERT INTO webhook_delivery (
+        webhook_id, creator_id, created_ts, event, status, status_code,
+        duration_ms, error, request_body, response_body
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      options.webhookId,
+      options.creatorId,
+      unixNow(),
+      truncateText(options.event, 200),
+      status,
+      statusCode,
+      durationMs,
+      truncateText(error, 1000),
+      truncateText(options.requestBody, 12000),
+      truncateText(responseBody, 4000)
+    ).run();
+
+    await pruneWebhookDeliveries(env, options.creatorId);
+    const id = Number(result.meta.last_row_id);
+    return await env.DB.prepare("SELECT * FROM webhook_delivery WHERE id = ?")
+      .bind(id)
+      .first<DbWebhookDelivery>();
+  } catch (err) {
+    console.warn("Webhook delivery log failed", err);
+    return null;
+  }
+}
+
+async function pruneWebhookDeliveries(env: Env, creatorId: number): Promise<void> {
+  await env.DB.prepare(`
+    DELETE FROM webhook_delivery
+    WHERE creator_id = ?
+      AND id NOT IN (
+        SELECT id FROM webhook_delivery
+        WHERE creator_id = ?
+        ORDER BY created_ts DESC, id DESC
+        LIMIT 200
+      )
+  `).bind(creatorId, creatorId).run().catch(() => undefined);
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length > maxLength ? value.slice(0, maxLength) : value;
 }

@@ -3,6 +3,7 @@ import { route } from "preact-router";
 import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
 import { normalizeWebhookForm } from "../integrationHelpers";
+import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../webhookDeliveryView";
 import type { CurrentUser } from "../App";
 
 interface SettingsPageProps {
@@ -37,6 +38,20 @@ interface Webhook {
   updatedTs: number;
 }
 
+interface WebhookDelivery {
+  id: number;
+  webhookId: number;
+  webhookName: string;
+  webhookUrl: string;
+  createdTs: number;
+  event: string;
+  status: "SUCCESS" | "FAILED";
+  statusCode: number | null;
+  durationMs: number;
+  error: string;
+  responseBody: string;
+}
+
 interface UserStats {
   memoCount: number;
   attachmentCount: number;
@@ -65,6 +80,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [webhookName, setWebhookName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
+  const [retryingDeliveryId, setRetryingDeliveryId] = useState<number | null>(null);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [instanceName, setInstanceName] = useState("Memos Worker");
 
@@ -109,6 +126,16 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   }, [currentUser]);
 
+  const fetchWebhookDeliveries = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api<{ deliveries: WebhookDelivery[] }>("/api/v1/webhooks/deliveries");
+      setWebhookDeliveries(data.deliveries);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
   const fetchOverview = useCallback(async () => {
     if (!currentUser) return;
     try {
@@ -125,8 +152,9 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
 
   useEffect(() => {
     fetchWebhooks();
+    fetchWebhookDeliveries();
     fetchOverview();
-  }, [fetchOverview, fetchWebhooks]);
+  }, [fetchOverview, fetchWebhookDeliveries, fetchWebhooks]);
 
   if (!currentUser) return null;
 
@@ -226,6 +254,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       setWebhookName("");
       setWebhookUrl("");
       fetchWebhooks();
+      fetchWebhookDeliveries();
       notify("Webhook 已创建", "success");
     } catch (err) {
       notify(`创建 Webhook 失败：${(err as Error).message}`, "error");
@@ -241,6 +270,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       body: JSON.stringify({ rowStatus: next }),
     });
     fetchWebhooks();
+    fetchWebhookDeliveries();
   };
 
   const handleDeleteWebhook = async (webhook: Webhook) => {
@@ -253,6 +283,20 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     if (!ok) return;
     await api(`/api/v1/webhooks/${webhook.id}`, { method: "DELETE" });
     fetchWebhooks();
+    fetchWebhookDeliveries();
+  };
+
+  const handleRetryWebhookDelivery = async (delivery: WebhookDelivery) => {
+    setRetryingDeliveryId(delivery.id);
+    try {
+      await api(`/api/v1/webhooks/deliveries/${delivery.id}/retry`, { method: "POST" });
+      await fetchWebhookDeliveries();
+      notify("Webhook 已重试", "success");
+    } catch (err) {
+      notify(`重试失败：${(err as Error).message}`, "error");
+    } finally {
+      setRetryingDeliveryId(null);
+    }
   };
 
   const handleExport = async () => {
@@ -510,6 +554,39 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
             {webhookSaving ? "创建中..." : "创建"}
           </button>
         </form>
+
+        <div class="webhook-delivery-panel">
+          <div class="settings-subtitle">最近投递</div>
+          <div class="webhook-delivery-list">
+            {webhookDeliveries.map((delivery) => {
+              const meta = webhookDeliveryStatusMeta(delivery);
+              return (
+                <div key={delivery.id} class="webhook-delivery-item">
+                  <div class="webhook-delivery-main">
+                    <span class={`delivery-status ${meta.className}`}>{meta.label}</span>
+                    <span class="delivery-event">{delivery.event}</span>
+                    <span class="delivery-name">{delivery.webhookName}</span>
+                    <span class="delivery-time">{webhookDeliveryTimeLabel(delivery.createdTs)}</span>
+                  </div>
+                  <div class="webhook-delivery-meta">
+                    <span>{delivery.durationMs}ms</span>
+                    {delivery.error && <span class="delivery-error">{delivery.error}</span>}
+                    {meta.canRetry && (
+                      <button
+                        class="btn btn-ghost btn-sm"
+                        onClick={() => handleRetryWebhookDelivery(delivery)}
+                        disabled={retryingDeliveryId === delivery.id}
+                      >
+                        {retryingDeliveryId === delivery.id ? "重试中..." : "重试"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {webhookDeliveries.length === 0 && <div class="muted-line">暂无投递记录。</div>}
+          </div>
+        </div>
       </div>
 
       {currentUser.role === "ADMIN" && (

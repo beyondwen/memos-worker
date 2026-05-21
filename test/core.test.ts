@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildMemoPayload, hashPassword, sanitizeFilename, verifyPassword } from "../src/index";
 import { parseFilter } from "../src/filter";
+import { deliveryStatusFromResponse, formatWebhookError } from "../src/services/webhook";
 
 describe("password hashing", () => {
   it("verifies a valid PBKDF2 password and rejects a wrong password", async () => {
@@ -140,5 +141,24 @@ describe("CEL filter engine", () => {
     expect(result).not.toBeNull();
     expect(result!.sql).toBe("memo.row_status = ?");
     expect(result!.params).toEqual(["ARCHIVED"]);
+  });
+});
+
+describe("webhook delivery helpers", () => {
+  it("marks 2xx responses as successful deliveries", () => {
+    expect(deliveryStatusFromResponse(200)).toBe("SUCCESS");
+    expect(deliveryStatusFromResponse(299)).toBe("SUCCESS");
+  });
+
+  it("marks non-2xx responses and network failures as failed deliveries", () => {
+    expect(deliveryStatusFromResponse(300)).toBe("FAILED");
+    expect(deliveryStatusFromResponse(500)).toBe("FAILED");
+    expect(deliveryStatusFromResponse(null)).toBe("FAILED");
+  });
+
+  it("formats unknown webhook errors without throwing", () => {
+    expect(formatWebhookError(new Error("boom"))).toBe("boom");
+    expect(formatWebhookError("bad gateway")).toBe("bad gateway");
+    expect(formatWebhookError(null)).toBe("Unknown webhook error");
   });
 });
