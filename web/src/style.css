@@ -254,6 +254,10 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   width: 100%; border: none; outline: none; background: transparent;
   font-size: 0.9rem;
 }
+.recent-searches {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: -8px 0 12px;
+}
 .filter-select {
   min-height: 38px; padding: 0 10px;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
@@ -375,6 +379,12 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .memo-list-item.selected .memo-card {
   border-color: #9bb9a7;
   box-shadow: 0 0 0 2px rgba(154,168,148,0.18), var(--shadow-sm);
+}
+.search-snippet {
+  margin: -6px 0 6px 20px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 .memo-select {
   position: absolute; top: 14px; left: -32px;
@@ -690,6 +700,36 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 }
 .attachment-cleanup-item .pat-date {
   color: #155e75;
+}
+.backup-preview {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 10px 0 16px; padding: 10px 12px;
+  background: #fff7ed; border: 1px solid #fed7aa;
+  border-radius: var(--radius-sm);
+  color: var(--ink); font-size: 0.82rem;
+}
+.settings-tag-list {
+  margin-bottom: 14px;
+}
+.settings-tag-list .tag-item {
+  justify-content: space-between;
+  gap: 10px;
+}
+.timeline-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.timeline-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--paper-tint); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+}
+.timeline-row:hover { border-color: var(--line-strong); background: var(--paper); }
+.timeline-row strong {
+  min-width: 32px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--accent-soft);
 }
 .inline-form {
   display: flex; gap: 8px; align-items: end;

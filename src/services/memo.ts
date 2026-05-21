@@ -6,6 +6,7 @@ import {
 import { getUserById } from "../middleware";
 import { fireWebhooks } from "./webhook";
 import type { MemoWebhookEvent } from "../webhookEvents";
+import { recordAudit } from "./audit";
 
 export function publicMemo(memo: DbMemo): Record<string, unknown> {
   return {
@@ -281,6 +282,7 @@ export async function deleteMemo(env: Env, viewer: Viewer, uid: string): Promise
 
   await archiveMemoRecord(env, memo);
   await emitMemoEvent(env, "memo.archived", { ...memo, row_status: "ARCHIVED", updated_ts: unixNow() });
+  await recordAudit(env, viewer, "memo.delete", uid);
   return json({ ok: true });
 }
 
@@ -291,6 +293,7 @@ export async function purgeMemo(env: Env, viewer: Viewer, uid: string): Promise<
 
   await purgeMemoRecord(env, memo);
   await emitMemoEvent(env, "memo.deleted", memo, { hardDelete: true });
+  await recordAudit(env, viewer, "memo.purge", uid);
   return json({ ok: true });
 }
 

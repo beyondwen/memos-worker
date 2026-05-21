@@ -72,6 +72,7 @@ export function Header({ currentUser, onLogout }: HeaderProps) {
       <nav class={`header-nav${menuOpen ? " open" : ""}`}>
         {nav("/", "首页")}
         {nav("/explore", "发现")}
+        {currentUser && nav("/timeline", "时间线")}
         {currentUser && nav("/inbox", "通知", unreadCount)}
         {currentUser && nav("/settings", "设置")}
       </nav>

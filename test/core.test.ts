@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { buildMemoPayload, hashPassword, sanitizeFilename, verifyPassword } from "../src/index";
 import { parseFilter } from "../src/filter";
 import { buildWebhookTestBody, deliveryStatusFromResponse, formatWebhookError } from "../src/services/webhook";
-import { buildBackupObjectKey, backupRetentionCutoff } from "../src/services/backup";
+import { backupRetentionCutoff, buildBackupObjectKey, previewBackupPayload } from "../src/services/backup";
+import { normalizeTagName, replaceTagInContent } from "../src/services/tags";
+import { auditActionLabel } from "../src/services/audit";
 
 describe("password hashing", () => {
   it("verifies a valid PBKDF2 password and rejects a wrong password", async () => {
@@ -181,5 +183,36 @@ describe("backup helpers", () => {
 
   it("calculates retention cutoff in seconds", () => {
     expect(backupRetentionCutoff(1_000_000, 7)).toBe(395_200);
+  });
+
+  it("previews backup payload counts", () => {
+    expect(previewBackupPayload({
+      memos: [{ uid: "m1" }, { uid: "m2" }],
+      attachments: [{ uid: "a1" }],
+      relations: [],
+      users: [{ id: 1 }]
+    })).toEqual({
+      memoCount: 2,
+      attachmentCount: 1,
+      relationCount: 0,
+      userCount: 1
+    });
+  });
+});
+
+describe("tag helpers", () => {
+  it("normalizes hash-prefixed tags", () => {
+    expect(normalizeTagName("  #Work/Now ")).toBe("Work/Now");
+  });
+
+  it("replaces exact hash tags in memo content", () => {
+    expect(replaceTagInContent("#work and #work/log", "work", "life")).toBe("#life and #work/log");
+  });
+});
+
+describe("audit helpers", () => {
+  it("labels known audit actions", () => {
+    expect(auditActionLabel("backup.restore")).toBe("恢复备份");
+    expect(auditActionLabel("unknown.action")).toBe("unknown.action");
   });
 });

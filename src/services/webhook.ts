@@ -1,5 +1,6 @@
 import type { Env, Viewer } from "../types";
 import { json, readJson, unixNow } from "../utils";
+import { recordAudit } from "./audit";
 
 export type WebhookDeliveryStatus = "SUCCESS" | "FAILED";
 
@@ -116,6 +117,7 @@ export async function createWebhook(request: Request, env: Env, viewer: Viewer):
   const result = await env.DB.prepare(`
     INSERT INTO webhook (created_ts, updated_ts, creator_id, name, url) VALUES (?, ?, ?, ?, ?)
   `).bind(now, now, viewer.id, name, url).run();
+  await recordAudit(env, viewer, "webhook.create", String(result.meta.last_row_id), { name });
 
   return json({
     webhook: { id: Number(result.meta.last_row_id), name, url, rowStatus: "NORMAL", createdTs: now, updatedTs: now }
@@ -154,6 +156,7 @@ export async function deleteWebhook(env: Env, viewer: Viewer, webhookId: string)
   if (!existing) return json({ error: "Webhook not found" }, 404);
 
   await env.DB.prepare("DELETE FROM webhook WHERE id = ?").bind(id).run();
+  await recordAudit(env, viewer, "webhook.delete", String(id));
   return json({ ok: true });
 }
 

@@ -18,6 +18,8 @@ import { MEMO_WEBHOOK_EVENTS } from "../src/webhookEvents";
 import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../web/src/webhookDeliveryView";
 import { highlightRenderedHtml } from "../web/src/searchHighlight";
 import { applyMemoTemplate, MEMO_TEMPLATES } from "../web/src/memoTemplates";
+import { buildSearchSnippet, scoreSearchMatch } from "../web/src/searchResultView";
+import { attachmentCleanupSummary } from "../web/src/attachmentCleanupView";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -75,6 +77,27 @@ describe("search highlighting", () => {
 
   it("ignores blank search terms", () => {
     expect(highlightRenderedHtml("<p>Hello memo</p>", "  ")).toBe("<p>Hello memo</p>");
+  });
+});
+
+describe("search result view helpers", () => {
+  it("scores tag matches higher than plain content matches", () => {
+    expect(scoreSearchMatch({ content: "hello", tags: ["work"] }, "work")).toBeGreaterThan(
+      scoreSearchMatch({ content: "work item", tags: [] }, "work")
+    );
+  });
+
+  it("builds a short snippet around the match", () => {
+    expect(buildSearchSnippet("alpha beta gamma delta", "gamma", 8)).toBe("...eta gamma del...");
+  });
+});
+
+describe("attachment cleanup view helpers", () => {
+  it("summarizes attachment count and size", () => {
+    expect(attachmentCleanupSummary([
+      { size: 1024 },
+      { size: 2048 },
+    ])).toEqual({ count: 2, size: 3072, sizeLabel: "3.0 KB" });
   });
 });
 

@@ -1,6 +1,7 @@
 import type { Env, Viewer, DbAttachment } from "../types";
-import { json, unixNow, generateUid, sanitizeFilename } from "../utils";
+import { json, readJson, unixNow, generateUid, sanitizeFilename } from "../utils";
 import { canWriteMemo, getMemoByUid } from "./memo";
+import { recordAudit } from "./audit";
 
 export function publicAttachment(attachment: DbAttachment): Record<string, unknown> {
   return {
@@ -130,5 +131,44 @@ export async function deleteAttachment(env: Env, viewer: Viewer, uid: string): P
 
   await env.MEMOS_BUCKET.delete(attachment.reference).catch(() => undefined);
   await env.DB.prepare("DELETE FROM attachment WHERE id = ?").bind(attachment.id).run();
+  await recordAudit(env, viewer, "attachment.delete", uid, { filename: attachment.filename, size: attachment.size });
   return json({ ok: true });
+}
+
+export async function batchDeleteAttachments(request: Request, env: Env, viewer: Viewer): Promise<Response> {
+  const body = await readJson<{ attachmentUids?: string[]; olderThanDays?: number }>(request);
+  const uids = new Set((body.attachmentUids ?? []).map((uid) => String(uid).trim()).filter(Boolean));
+  const where = ["attachment.memo_id IS NULL"];
+  const params: unknown[] = [];
+  if (viewer.role !== "ADMIN") {
+    where.push("attachment.creator_id = ?");
+    params.push(viewer.id);
+  }
+  if (uids.size > 0) {
+    where.push(`attachment.uid IN (${[...uids].map(() => "?").join(",")})`);
+    params.push(...uids);
+  }
+  if (body.olderThanDays && Number.isFinite(body.olderThanDays)) {
+    where.push("attachment.created_ts < ?");
+    params.push(unixNow() - body.olderThanDays * 86400);
+  }
+
+  const rows = await env.DB.prepare(`
+    SELECT attachment.*, memo.visibility AS memo_visibility, memo.creator_id AS memo_creator_id
+    FROM attachment
+    LEFT JOIN memo ON memo.id = attachment.memo_id
+    WHERE ${where.join(" AND ")}
+    LIMIT 100
+  `).bind(...params).all<DbAttachment>();
+
+  let deleted = 0;
+  let size = 0;
+  for (const attachment of rows.results) {
+    await env.MEMOS_BUCKET.delete(attachment.reference).catch(() => undefined);
+    await env.DB.prepare("DELETE FROM attachment WHERE id = ?").bind(attachment.id).run();
+    deleted += 1;
+    size += attachment.size;
+  }
+  await recordAudit(env, viewer, "attachment.delete", "batch", { deleted, size });
+  return json({ deleted, size });
 }

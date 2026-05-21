@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
 import { normalizeWebhookForm } from "../integrationHelpers";
 import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../webhookDeliveryView";
+import { attachmentCleanupSummary, formatBytes } from "../attachmentCleanupView";
 import type { CurrentUser } from "../App";
 
 interface SettingsPageProps {
@@ -66,6 +67,32 @@ interface UserStats {
   attachmentCount: number;
 }
 
+interface BackupItem {
+  key: string;
+  size: number;
+  uploaded: string;
+}
+
+interface BackupPreview {
+  userCount: number;
+  memoCount: number;
+  attachmentCount: number;
+  relationCount: number;
+}
+
+interface TagItem {
+  name: string;
+  count: number;
+}
+
+interface AuditLog {
+  id: number;
+  createdTs: number;
+  actorUsername: string | null;
+  actionLabel: string;
+  target: string;
+}
+
 export function SettingsPage({ currentUser }: SettingsPageProps) {
   const { notify, confirm } = useFeedback();
   const [nickname, setNickname] = useState("");
@@ -95,6 +122,14 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [unattachedAttachments, setUnattachedAttachments] = useState<Attachment[]>([]);
   const [deletingAttachmentUid, setDeletingAttachmentUid] = useState("");
   const [backupCreating, setBackupCreating] = useState(false);
+  const [backups, setBackups] = useState<BackupItem[]>([]);
+  const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(null);
+  const [restoringBackupKey, setRestoringBackupKey] = useState("");
+  const [tags, setTags] = useState<TagItem[]>([]);
+  const [tagFrom, setTagFrom] = useState("");
+  const [tagTo, setTagTo] = useState("");
+  const [tagSaving, setTagSaving] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [instanceName, setInstanceName] = useState("Memos Worker");
 
@@ -173,12 +208,45 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   }, [currentUser]);
 
+  const fetchBackups = useCallback(async () => {
+    if (!currentUser || currentUser.role !== "ADMIN") return;
+    try {
+      const data = await api<{ backups: BackupItem[] }>("/api/v1/backups");
+      setBackups(data.backups);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
+  const fetchTags = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api<{ tags: TagItem[] }>("/api/v1/tags");
+      setTags(data.tags);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
+  const fetchAuditLogs = useCallback(async () => {
+    if (!currentUser || currentUser.role !== "ADMIN") return;
+    try {
+      const data = await api<{ logs: AuditLog[] }>("/api/v1/audit-logs");
+      setAuditLogs(data.logs);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     fetchWebhooks();
     fetchWebhookDeliveries();
     fetchUnattachedAttachments();
+    fetchBackups();
+    fetchTags();
+    fetchAuditLogs();
     fetchOverview();
-  }, [fetchOverview, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
+  }, [fetchAuditLogs, fetchBackups, fetchOverview, fetchTags, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
 
   if (!currentUser) return null;
 
@@ -393,11 +461,90 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     setBackupCreating(true);
     try {
       const data = await api<{ backup: { key: string; size: number } }>("/api/v1/backups", { method: "POST" });
+      await fetchBackups();
       notify(`备份已创建：${data.backup.key}`, "success");
     } catch (err) {
       notify(`创建备份失败：${(err as Error).message}`, "error");
     } finally {
       setBackupCreating(false);
+    }
+  };
+
+  const handlePreviewBackup = async (backup: BackupItem) => {
+    try {
+      const data = await api<{ preview: BackupPreview }>("/api/v1/backups/preview", {
+        method: "POST",
+        body: JSON.stringify({ key: backup.key }),
+      });
+      setBackupPreview(data.preview);
+      setRestoringBackupKey(backup.key);
+    } catch (err) {
+      notify(`预览备份失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (!restoringBackupKey) return;
+    const ok = await confirm({
+      title: "恢复备份？",
+      message: "会按备份内容合并恢复备忘录、附件元数据和引用关系。",
+      confirmText: "恢复",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api("/api/v1/backups/restore", {
+        method: "POST",
+        body: JSON.stringify({ key: restoringBackupKey }),
+      });
+      setBackupPreview(null);
+      setRestoringBackupKey("");
+      await fetchAuditLogs();
+      notify("备份已恢复", "success");
+    } catch (err) {
+      notify(`恢复备份失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handleBatchDeleteAttachments = async (olderThanDays?: number) => {
+    const summary = attachmentCleanupSummary(unattachedAttachments);
+    const ok = await confirm({
+      title: "批量删除未绑定附件？",
+      message: `${summary.count} 个附件，共 ${summary.sizeLabel}`,
+      confirmText: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api("/api/v1/attachments/batch-delete", {
+        method: "POST",
+        body: JSON.stringify({ attachmentUids: unattachedAttachments.map((item) => item.uid), olderThanDays }),
+      });
+      await fetchUnattachedAttachments();
+      await fetchAuditLogs();
+      notify("未绑定附件已清理", "success");
+    } catch (err) {
+      notify(`批量删除失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handleRenameTag = async (e: Event) => {
+    e.preventDefault();
+    setTagSaving(true);
+    try {
+      const data = await api<{ updated: number }>("/api/v1/tags/rename", {
+        method: "POST",
+        body: JSON.stringify({ from: tagFrom, to: tagTo }),
+      });
+      setTagFrom("");
+      setTagTo("");
+      await fetchTags();
+      await fetchAuditLogs();
+      notify(`已更新 ${data.updated} 条备忘录`, "success");
+    } catch (err) {
+      notify(`更新标签失败：${(err as Error).message}`, "error");
+    } finally {
+      setTagSaving(false);
     }
   };
 
@@ -408,11 +555,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       day: "numeric",
     });
 
-  const formatBytes = (size: number) => {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    return `${(size / 1024 / 1024).toFixed(1)} MB`;
-  };
+  const attachmentSummary = attachmentCleanupSummary(unattachedAttachments);
 
   return (
     <div class="settings-layout">
@@ -686,11 +829,79 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               <input type="file" accept="application/json" onChange={handleImport} />
             </label>
           </div>
+          <div class="settings-subtitle">备份列表</div>
+          <div class="pat-list">
+            {backups.map((backup) => (
+              <div key={backup.key} class="pat-item">
+                <span class="pat-name">{backup.key.split("/").pop()}</span>
+                <span class="pat-prefix">{formatBytes(backup.size)}</span>
+                <span class="pat-date">{new Date(backup.uploaded).toLocaleString("zh-CN")}</span>
+                <a class="btn btn-ghost btn-sm" href={`/api/v1/backups/download?key=${encodeURIComponent(backup.key)}`} target="_blank" rel="noopener noreferrer">
+                  下载
+                </a>
+                <button class="btn btn-ghost btn-sm" onClick={() => handlePreviewBackup(backup)}>
+                  预览
+                </button>
+              </div>
+            ))}
+            {backups.length === 0 && <div class="muted-line">暂无备份。</div>}
+          </div>
+          {backupPreview && (
+            <div class="backup-preview">
+              <span>用户 {backupPreview.userCount}</span>
+              <span>备忘录 {backupPreview.memoCount}</span>
+              <span>附件 {backupPreview.attachmentCount}</span>
+              <span>引用 {backupPreview.relationCount}</span>
+              <button class="btn btn-danger btn-sm" onClick={handleRestoreBackup}>恢复此备份</button>
+            </div>
+          )}
+          <div class="settings-subtitle">操作审计</div>
+          <div class="webhook-delivery-list">
+            {auditLogs.map((log) => (
+              <div key={log.id} class="webhook-delivery-item">
+                <div class="webhook-delivery-main">
+                  <span class="delivery-event">{log.actionLabel}</span>
+                  <span class="delivery-name">{log.actorUsername ?? "system"}</span>
+                  <span class="delivery-time">{new Date(log.createdTs * 1000).toLocaleString("zh-CN")}</span>
+                </div>
+                <span class="delivery-error">{log.target}</span>
+              </div>
+            ))}
+            {auditLogs.length === 0 && <div class="muted-line">暂无审计记录。</div>}
+          </div>
         </div>
       )}
 
       <div class="settings-section">
+        <h2>标签管理</h2>
+        <div class="tag-list settings-tag-list">
+          {tags.map((tag) => (
+            <button key={tag.name} class="tag-item" onClick={() => setTagFrom(tag.name)}>
+              #{tag.name} <span>{tag.count}</span>
+            </button>
+          ))}
+          {tags.length === 0 && <div class="muted-line">暂无标签。</div>}
+        </div>
+        <form class="inline-form" onSubmit={handleRenameTag}>
+          <input class="form-input" placeholder="原标签" value={tagFrom} onInput={(e) => setTagFrom((e.target as HTMLInputElement).value)} />
+          <input class="form-input" placeholder="新标签" value={tagTo} onInput={(e) => setTagTo((e.target as HTMLInputElement).value)} />
+          <button class="btn btn-primary btn-sm" disabled={tagSaving || !tagFrom || !tagTo}>
+            {tagSaving ? "处理中..." : "重命名/合并"}
+          </button>
+        </form>
+      </div>
+
+      <div class="settings-section">
         <h2>附件清理</h2>
+        <div class="settings-actions">
+          <span class="muted-line">{attachmentSummary.count} 个未绑定附件，共 {attachmentSummary.sizeLabel}</span>
+          <button class="btn btn-danger btn-sm" onClick={() => handleBatchDeleteAttachments()} disabled={unattachedAttachments.length === 0}>
+            全部清理
+          </button>
+          <button class="btn btn-secondary btn-sm" onClick={() => handleBatchDeleteAttachments(30)} disabled={unattachedAttachments.length === 0}>
+            清理 30 天前
+          </button>
+        </div>
         <div class="pat-list">
           {unattachedAttachments.map((attachment) => (
             <div key={attachment.uid} class="pat-item attachment-cleanup-item">

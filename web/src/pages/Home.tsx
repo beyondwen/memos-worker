@@ -26,6 +26,13 @@ export function Home({ currentUser }: HomeProps) {
   const [createdBefore, setCreatedBefore] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("memos_recent_searches") || "[]");
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     if (!currentUser) {
@@ -53,12 +60,33 @@ export function Home({ currentUser }: HomeProps) {
     fetchTags();
   }, [fetchTags, refreshKey]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const after = params.get("createdAfter") ?? "";
+    const before = params.get("createdBefore") ?? "";
+    if (after || before) {
+      setCreatedAfter(after);
+      setCreatedBefore(before);
+      setShowAdvanced(true);
+    }
+  }, []);
+
   const handleCreated = () => {
     setRefreshKey((k) => k + 1);
   };
 
   const handleTagClick = (tag: string) => {
     setActiveTag((prev) => (prev === tag ? "" : tag));
+  };
+
+  const commitSearch = (value: string) => {
+    const term = value.trim();
+    if (!term) return;
+    setRecentSearches((prev) => {
+      const next = [term, ...prev.filter((item) => item !== term)].slice(0, 6);
+      localStorage.setItem("memos_recent_searches", JSON.stringify(next));
+      return next;
+    });
   };
 
   if (!currentUser) return null;
@@ -123,6 +151,8 @@ export function Home({ currentUser }: HomeProps) {
               placeholder="搜索内容"
               value={search}
               onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitSearch(search); }}
+              onBlur={() => commitSearch(search)}
             />
           </label>
 
@@ -155,6 +185,16 @@ export function Home({ currentUser }: HomeProps) {
             {showAdvanced ? "收起高级" : "高级筛选"}
           </button>
         </div>
+
+        {recentSearches.length > 0 && (
+          <div class="recent-searches">
+            {recentSearches.map((term) => (
+              <button key={term} class="tag-item" onClick={() => setSearch(term)}>
+                {term}
+              </button>
+            ))}
+          </div>
+        )}
 
         {showAdvanced && (
           <div class="advanced-panel">

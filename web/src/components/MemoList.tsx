@@ -7,6 +7,7 @@ import { buildMemoListPath, type MemoPropertyFilter, type MemoState, type MemoVi
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 import { buildBulkMemoRequest, bulkMemoActionLabel, type BulkMemoAction } from "../bulkActions";
 import { useFeedback } from "./Feedback";
+import { buildSearchSnippet, scoreSearchMatch } from "../searchResultView";
 
 interface MemoListResponse {
   memos: Memo[];
@@ -147,6 +148,9 @@ export function MemoList({
     .filter((memo) => currentUser && memo.creator.id === currentUser.id)
     .map((memo) => memo.uid);
   const allSelected = selectableUids.length > 0 && selectableUids.every((uid) => selectedUids.has(uid));
+  const visibleMemos = search
+    ? [...memos].sort((a, b) => scoreSearchMatch({ content: b.content, tags: b.payload.tags }, search) - scoreSearchMatch({ content: a.content, tags: a.payload.tags }, search))
+    : memos;
 
   const toggleAll = useCallback(() => {
     setSelectedUids((prev) => {
@@ -268,7 +272,7 @@ export function MemoList({
         </div>
       )}
 
-      {memos.map((memo) => (
+      {visibleMemos.map((memo) => (
         <div
           key={memo.uid}
           class={`memo-list-item${selectedUids.has(memo.uid) ? " selected" : ""}`}
@@ -294,6 +298,11 @@ export function MemoList({
             onRemove={handleMemoRemove}
             highlight={search}
           />
+          {search && (
+            <div class="search-snippet">
+              {buildSearchSnippet(memo.content, search, 44)}
+            </div>
+          )}
         </div>
       ))}
 

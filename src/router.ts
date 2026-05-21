@@ -4,12 +4,15 @@ import { hashPassword, verifyPassword, signJwt, verifyJwt, sha256Hex } from "./a
 import { currentViewer, getUserById } from "./middleware";
 import { publicUser, listUsers, getUser, updateUser, deleteUser, updateMe, changePassword, listPats, createPat, deletePat, listUserSettings, getUserSetting, updateUserSetting, getUserStats } from "./services/user";
 import { listMemos, createMemo, getMemo, updateMemo, deleteMemo, purgeMemo, bulkUpdateMemos, exportData, importData } from "./services/memo";
-import { uploadAttachment, downloadAttachment, listAttachments, deleteAttachment } from "./services/attachment";
+import { uploadAttachment, downloadAttachment, listAttachments, deleteAttachment, batchDeleteAttachments } from "./services/attachment";
 import { createComment, listComments, upsertReaction, deleteReaction, listReactions, getRelations, setRelations } from "./services/social";
 import { createShare, listShares, deleteShare, getSharedMemo, downloadSharedAttachment } from "./services/share";
 import { listInbox, updateInboxStatus, deleteInboxItem } from "./services/inbox";
 import { listWebhooks, createWebhook, updateWebhook, deleteWebhook, listWebhookDeliveries, retryWebhookDelivery, testWebhook } from "./services/webhook";
-import { createBackupResponse } from "./services/backup";
+import { createBackupResponse, downloadBackup, listBackups, previewBackup, restoreBackup } from "./services/backup";
+import { listTags, renameTag } from "./services/tags";
+import { getTimeline } from "./services/timeline";
+import { listAuditLogs } from "./services/audit";
 import { generateRss } from "./rss";
 import { parseFilter } from "./filter";
 import { appHtml } from "./ui";
@@ -72,12 +75,29 @@ export async function route(request: Request, env: Env): Promise<Response> {
     if (url.pathname === "/api/v1/import/memos" && method === "POST") return importData(request, env, viewer);
     if (url.pathname === "/api/v1/backups" && method === "POST") {
       if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
-      return createBackupResponse(env);
+      return createBackupResponse(env, viewer);
+    }
+    if (url.pathname === "/api/v1/backups" && method === "GET") {
+      if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
+      return listBackups(env, viewer);
+    }
+    if (url.pathname === "/api/v1/backups/download" && method === "GET") {
+      if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
+      return downloadBackup(request, env);
+    }
+    if (url.pathname === "/api/v1/backups/preview" && method === "POST") {
+      if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
+      return previewBackup(request, env);
+    }
+    if (url.pathname === "/api/v1/backups/restore" && method === "POST") {
+      if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
+      return restoreBackup(request, env, viewer);
     }
 
     // Attachments
     if (url.pathname === "/api/v1/attachments" && method === "POST") return uploadAttachment(request, env, viewer);
     if (url.pathname === "/api/v1/attachments" && method === "GET") return listAttachments(request, env, viewer);
+    if (url.pathname === "/api/v1/attachments/batch-delete" && method === "POST") return batchDeleteAttachments(request, env, viewer);
     const attachmentDeleteMatch = url.pathname.match(/^\/api\/v1\/attachments\/([^/]+)$/);
     if (attachmentDeleteMatch && method === "DELETE") {
       return deleteAttachment(env, viewer, decodeURIComponent(attachmentDeleteMatch[1]));
@@ -88,6 +108,10 @@ export async function route(request: Request, env: Env): Promise<Response> {
 
     // Users
     if (url.pathname === "/api/v1/users" && method === "GET") return listUsers(env, viewer);
+    if (url.pathname === "/api/v1/tags" && method === "GET") return listTags(env, viewer);
+    if (url.pathname === "/api/v1/tags/rename" && method === "POST") return renameTag(request, env, viewer);
+    if (url.pathname === "/api/v1/timeline" && method === "GET") return getTimeline(env, viewer);
+    if (url.pathname === "/api/v1/audit-logs" && method === "GET") return listAuditLogs(env, viewer);
 
     // Memo by UID
     const memoMatch = url.pathname.match(/^\/api\/v1\/memos\/([^/]+)$/);
