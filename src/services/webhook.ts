@@ -49,7 +49,9 @@ export async function updateWebhook(request: Request, env: Env, viewer: Viewer, 
   const now = unixNow();
   const nextName = body.name !== undefined ? String(body.name).trim() : existing.name;
   const nextUrl = body.url !== undefined ? String(body.url).trim() : existing.url;
-  const nextStatus = body.rowStatus === "ARCHIVED" ? "ARCHIVED" : existing.row_status;
+  const nextStatus = body.rowStatus === "ARCHIVED" || body.rowStatus === "NORMAL"
+    ? body.rowStatus
+    : existing.row_status;
 
   await env.DB.prepare(`
     UPDATE webhook SET name = ?, url = ?, row_status = ?, updated_ts = ? WHERE id = ?

@@ -8,6 +8,9 @@ import {
 } from "../web/src/editorDraft";
 import { attachmentDisplayMeta } from "../web/src/attachmentView";
 import { shouldRefreshForSseEvent } from "../web/src/sseEvents";
+import { buildAuthRedirectPath } from "../web/src/authFlow";
+import { formatInboxItem } from "../web/src/inboxView";
+import { buildShareUrl, normalizeWebhookForm } from "../web/src/integrationHelpers";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -143,5 +146,54 @@ describe("SSE refresh policy", () => {
     expect(shouldRefreshForSseEvent(null)).toBe(false);
     expect(shouldRefreshForSseEvent({ type: "ready", name: "memos/a" })).toBe(false);
     expect(shouldRefreshForSseEvent({ type: "memo.created" })).toBe(false);
+  });
+});
+
+describe("auth flow helpers", () => {
+  it("builds a login redirect path with the original route", () => {
+    expect(buildAuthRedirectPath("/settings?tab=integrations")).toBe(
+      "/auth?redirect=%2Fsettings%3Ftab%3Dintegrations"
+    );
+  });
+
+  it("does not redirect back to the auth page", () => {
+    expect(buildAuthRedirectPath("/auth")).toBe("/auth");
+  });
+});
+
+describe("inbox view helpers", () => {
+  it("formats comment notifications with sender and target", () => {
+    expect(formatInboxItem({
+      id: 1,
+      createdTs: 100,
+      status: "UNREAD",
+      sender: { id: 2, username: "alice", nickname: "Alice" },
+      message: { type: "memo.comment.created", memoUid: "m1", commentUid: "c1" },
+    })).toEqual({
+      title: "Alice 评论了你的备忘录",
+      detail: "打开备忘录查看回复",
+      memoPath: "/memos/m1",
+    });
+  });
+});
+
+describe("integration helpers", () => {
+  it("builds public share URLs with hash routing", () => {
+    expect(buildShareUrl("https://example.test", "s123")).toBe("https://example.test/#/shares/s123");
+  });
+
+  it("normalizes webhook form data", () => {
+    expect(normalizeWebhookForm("  CI  ", " https://example.test/hook ")).toEqual({
+      ok: true,
+      name: "CI",
+      url: "https://example.test/hook",
+    });
+  });
+
+  it("rejects invalid webhook URLs", () => {
+    expect(normalizeWebhookForm("CI", "not-url")).toEqual({
+      ok: false,
+      error: "请输入有效的 Webhook URL",
+    });
   });
 });

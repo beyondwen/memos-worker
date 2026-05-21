@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
+import { normalizeWebhookForm } from "../integrationHelpers";
 import type { CurrentUser } from "../App";
 
 interface SettingsPageProps {
@@ -27,6 +28,20 @@ interface NewPat {
   expiresTs: number | null;
 }
 
+interface Webhook {
+  id: number;
+  name: string;
+  url: string;
+  rowStatus: "NORMAL" | "ARCHIVED";
+  createdTs: number;
+  updatedTs: number;
+}
+
+interface UserStats {
+  memoCount: number;
+  attachmentCount: number;
+}
+
 export function SettingsPage({ currentUser }: SettingsPageProps) {
   const { notify, confirm } = useFeedback();
   const [nickname, setNickname] = useState("");
@@ -46,6 +61,12 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [newPatName, setNewPatName] = useState("");
   const [newPatResult, setNewPatResult] = useState<NewPat | null>(null);
   const [patCreating, setPatCreating] = useState(false);
+  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
+  const [webhookName, setWebhookName] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSaving, setWebhookSaving] = useState(false);
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [instanceName, setInstanceName] = useState("Memos Worker");
 
   useEffect(() => {
     if (!currentUser) {
@@ -77,6 +98,35 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   useEffect(() => {
     fetchPats();
   }, [fetchPats]);
+
+  const fetchWebhooks = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api<{ webhooks: Webhook[] }>("/api/v1/webhooks");
+      setWebhooks(data.webhooks);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
+  const fetchOverview = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const [instance, userStats] = await Promise.all([
+        api<{ name: string }>("/api/v1/instance"),
+        api<{ stats: UserStats }>(`/api/v1/users/${currentUser.username}/stats`),
+      ]);
+      setInstanceName(instance.name);
+      setStats(userStats.stats);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    fetchWebhooks();
+    fetchOverview();
+  }, [fetchOverview, fetchWebhooks]);
 
   if (!currentUser) return null;
 
@@ -160,6 +210,84 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
+  const handleCreateWebhook = async (e: Event) => {
+    e.preventDefault();
+    const normalized = normalizeWebhookForm(webhookName, webhookUrl);
+    if (!normalized.ok) {
+      notify(normalized.error, "error");
+      return;
+    }
+    setWebhookSaving(true);
+    try {
+      await api("/api/v1/webhooks", {
+        method: "POST",
+        body: JSON.stringify({ name: normalized.name, url: normalized.url }),
+      });
+      setWebhookName("");
+      setWebhookUrl("");
+      fetchWebhooks();
+      notify("Webhook 已创建", "success");
+    } catch (err) {
+      notify(`创建 Webhook 失败：${(err as Error).message}`, "error");
+    } finally {
+      setWebhookSaving(false);
+    }
+  };
+
+  const handleToggleWebhook = async (webhook: Webhook) => {
+    const next = webhook.rowStatus === "NORMAL" ? "ARCHIVED" : "NORMAL";
+    await api(`/api/v1/webhooks/${webhook.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ rowStatus: next }),
+    });
+    fetchWebhooks();
+  };
+
+  const handleDeleteWebhook = async (webhook: Webhook) => {
+    const ok = await confirm({
+      title: "删除 Webhook？",
+      message: "删除后相关自动化推送会停止。",
+      confirmText: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    await api(`/api/v1/webhooks/${webhook.id}`, { method: "DELETE" });
+    fetchWebhooks();
+  };
+
+  const handleExport = async () => {
+    try {
+      const data = await api<unknown>("/api/v1/export/memos");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `memos-export-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      notify(`导出失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handleImport = async (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      const result = await api<{ imported: number }>("/api/v1/import/memos", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      notify(`已导入 ${result.imported} 条备忘录`, "success");
+    } catch (err) {
+      notify(`导入失败：${(err as Error).message}`, "error");
+    } finally {
+      input.value = "";
+    }
+  };
+
   const formatTs = (ts: number) =>
     new Date(ts * 1000).toLocaleDateString(undefined, {
       year: "numeric",
@@ -173,7 +301,31 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
         <div>
           <div class="home-kicker">Settings</div>
           <h1>设置</h1>
-          <p>管理资料、密码和访问令牌</p>
+          <p>管理资料、密码、集成和数据</p>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h2>实例概览</h2>
+        <div class="overview-grid">
+          <div>
+            <span class="overview-label">实例</span>
+            <strong>{instanceName}</strong>
+          </div>
+          <div>
+            <span class="overview-label">备忘录</span>
+            <strong>{stats?.memoCount ?? "-"}</strong>
+          </div>
+          <div>
+            <span class="overview-label">附件</span>
+            <strong>{stats?.attachmentCount ?? "-"}</strong>
+          </div>
+        </div>
+        <div class="settings-links">
+          <a href="/api/v1/explore/rss.xml" target="_blank" rel="noopener noreferrer">公开 RSS</a>
+          <a href={`/api/v1/u/${encodeURIComponent(currentUser.username)}/rss.xml`} target="_blank" rel="noopener noreferrer">
+            我的公开 RSS
+          </a>
         </div>
       </div>
 
@@ -316,6 +468,64 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           </div>
         )}
       </div>
+
+      <div class="settings-section">
+        <h2>Webhook 集成</h2>
+        <div class="pat-list">
+          {webhooks.map((webhook) => (
+            <div key={webhook.id} class="pat-item">
+              <span class="pat-name">{webhook.name}</span>
+              <span class="pat-prefix">{webhook.rowStatus === "NORMAL" ? "启用" : "停用"}</span>
+              <span class="pat-date">{webhook.url}</span>
+              <button class="btn btn-ghost btn-sm" onClick={() => handleToggleWebhook(webhook)}>
+                {webhook.rowStatus === "NORMAL" ? "停用" : "启用"}
+              </button>
+              <button class="btn btn-ghost btn-sm" onClick={() => handleDeleteWebhook(webhook)}>
+                删除
+              </button>
+            </div>
+          ))}
+          {webhooks.length === 0 && <div class="muted-line">暂无 Webhook。</div>}
+        </div>
+        <form onSubmit={handleCreateWebhook} class="inline-form">
+          <div class="form-group">
+            <input
+              class="form-input"
+              type="text"
+              placeholder="名称"
+              value={webhookName}
+              onInput={(e) => setWebhookName((e.target as HTMLInputElement).value)}
+            />
+          </div>
+          <div class="form-group">
+            <input
+              class="form-input"
+              type="url"
+              placeholder="https://example.com/webhook"
+              value={webhookUrl}
+              onInput={(e) => setWebhookUrl((e.target as HTMLInputElement).value)}
+            />
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit" disabled={webhookSaving}>
+            {webhookSaving ? "创建中..." : "创建"}
+          </button>
+        </form>
+      </div>
+
+      {currentUser.role === "ADMIN" && (
+        <div class="settings-section">
+          <h2>数据维护</h2>
+          <div class="settings-actions">
+            <button class="btn btn-secondary" onClick={handleExport}>
+              导出备忘录
+            </button>
+            <label class="btn btn-secondary file-label">
+              导入备忘录
+              <input type="file" accept="application/json" onChange={handleImport} />
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,7 @@
-import { useState } from "preact/hooks";
+import { useCallback, useEffect, useState } from "preact/hooks";
 import { route } from "preact-router";
+import { api, getToken } from "../api";
+import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 import type { CurrentUser } from "../App";
 
 interface HeaderProps {
@@ -9,17 +11,55 @@ interface HeaderProps {
 
 export function Header({ currentUser, onLogout }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const p = typeof window !== "undefined" ? window.location.pathname : "";
   const displayName = currentUser?.nickname || currentUser?.username || "";
   const avatarInitial = displayName.trim().charAt(0).toUpperCase() || "M";
 
-  const nav = (href: string, label: string) => (
+  const refreshInbox = useCallback(async () => {
+    if (!currentUser) {
+      setUnreadCount(0);
+      return;
+    }
+    try {
+      const data = await api<{ unreadCount: number }>("/api/v1/inbox");
+      setUnreadCount(data.unreadCount || 0);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    refreshInbox();
+    const listener = () => refreshInbox();
+    window.addEventListener("memos:inbox-refresh", listener);
+    return () => window.removeEventListener("memos:inbox-refresh", listener);
+  }, [refreshInbox]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const source = createMemoEventSource(getToken());
+    if (!source) return;
+    const refresh = (message: MessageEvent) => {
+      try {
+        const event = JSON.parse(message.data);
+        if (shouldRefreshForSseEvent(event)) refreshInbox();
+      } catch {
+        // ignore
+      }
+    };
+    source.addEventListener("memo.comment.created", refresh);
+    return () => source.close();
+  }, [currentUser, refreshInbox]);
+
+  const nav = (href: string, label: string, badge?: number) => (
     <a
       href={href}
       class={p === href ? "active" : ""}
       onClick={(e) => { e.preventDefault(); route(href); setMenuOpen(false); }}
     >
       {label}
+      {!!badge && <span class="nav-badge">{badge > 99 ? "99+" : badge}</span>}
     </a>
   );
 
@@ -32,6 +72,7 @@ export function Header({ currentUser, onLogout }: HeaderProps) {
       <nav class={`header-nav${menuOpen ? " open" : ""}`}>
         {nav("/", "首页")}
         {nav("/explore", "发现")}
+        {currentUser && nav("/inbox", "通知", unreadCount)}
         {currentUser && nav("/settings", "设置")}
       </nav>
 

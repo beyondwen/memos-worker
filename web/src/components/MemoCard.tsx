@@ -4,6 +4,8 @@ import { api } from "../api";
 import { MarkdownContent } from "./MarkdownContent";
 import { useFeedback } from "./Feedback";
 import { AttachmentList } from "./AttachmentList";
+import { MemoActions } from "./MemoActions";
+import { buildShareUrl } from "../integrationHelpers";
 import type { CurrentUser } from "../App";
 
 export interface Memo {
@@ -223,7 +225,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
         `/api/v1/memos/${memo.uid}/shares`,
         { method: "POST", body: JSON.stringify({}) }
       );
-      const full = `${window.location.origin}/#/shares/${data.share.uid}`;
+      const full = buildShareUrl(window.location.origin, data.share.uid);
       setShareUrl(full);
       setShowShare(true);
     } catch (err) {
@@ -368,31 +370,19 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
         </div>
       )}
 
-      <div class="memo-actions">
-        <button class="memo-action-icon" title="查看详情" aria-label="查看详情" onClick={() => route(`/memos/${memo.uid}`)}>
-          ↗
-        </button>
-        {isOwner && !editing && (
-          <button class="memo-action-icon" title="编辑" aria-label="编辑" onClick={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}>
-            ✎
-          </button>
-        )}
-        {isOwner && memo.rowStatus === "ARCHIVED" && (
-          <button class="memo-action-icon" title="恢复" aria-label="恢复" onClick={handleRestore}>
-            ↺
-          </button>
-        )}
-        {isOwner && memo.rowStatus !== "ARCHIVED" && (
-          <button class="memo-action-icon" title="归档" aria-label="归档" onClick={handleArchive}>
-            □
-          </button>
-        )}
-        <button class="memo-action-icon" title="表态" aria-label="表态" onClick={handleToggleReactions}>+</button>
-        <button class="memo-action-icon" title="评论" aria-label="评论" onClick={handleToggleComments}>
-          ◌{commentsLoaded && comments.length > 0 ? comments.length : ""}
-        </button>
-        <button class="memo-action-icon" title="分享" aria-label="分享" onClick={handleShare}>⌁</button>
-      </div>
+      <MemoActions
+        isOwner={isOwner}
+        archived={memo.rowStatus === "ARCHIVED"}
+        editing={editing}
+        commentCount={commentsLoaded ? comments.length : 0}
+        onOpen={() => route(`/memos/${memo.uid}`)}
+        onEdit={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}
+        onArchive={handleArchive}
+        onRestore={handleRestore}
+        onReact={handleToggleReactions}
+        onComments={handleToggleComments}
+        onShare={handleShare}
+      />
     </div>
   );
 }

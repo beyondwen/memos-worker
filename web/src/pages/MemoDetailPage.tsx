@@ -4,7 +4,9 @@ import { api, getToken } from "../api";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { useFeedback } from "../components/Feedback";
 import { AttachmentList } from "../components/AttachmentList";
+import { ShareManager } from "../components/ShareManager";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
+import { buildShareUrl } from "../integrationHelpers";
 import type { CurrentUser } from "../App";
 import type { Memo, Reaction } from "../components/MemoCard";
 
@@ -155,7 +157,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         `/api/v1/memos/${uid}/shares`,
         { method: "POST", body: JSON.stringify({}) }
       );
-      setShareUrl(`${window.location.origin}/#/shares/${data.share.uid}`);
+      setShareUrl(buildShareUrl(window.location.origin, data.share.uid));
       setShowShare(true);
     } catch (err) {
       notify(`分享失败：${(err as Error).message}`, "error");
@@ -284,6 +286,10 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
           </button>
         </div>
       </div>
+
+      {currentUser?.id === memo.creator.id && (
+        <ShareManager memoUid={memo.uid} />
+      )}
 
       <div class="comments-section">
         <h3>评论 ({comments.length})</h3>

@@ -98,7 +98,10 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
       );
 
       onLogin(data.user, data.accessToken);
-      route("/");
+      const redirect = typeof window === "undefined"
+        ? "/"
+        : new URLSearchParams(window.location.search).get("redirect") || "/";
+      route(redirect);
     } catch (err) {
       setError((err as Error).message);
     } finally {

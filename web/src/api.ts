@@ -1,5 +1,6 @@
 let accessToken = localStorage.getItem("memos_access") || "";
 let refreshPromise: Promise<boolean> | null = null;
+let authExpiredHandler: (() => void) | null = null;
 
 export function getToken(): string {
   return accessToken;
@@ -13,6 +14,10 @@ export function setToken(token: string): void {
 export function clearToken(): void {
   accessToken = "";
   localStorage.removeItem("memos_access");
+}
+
+export function setAuthExpiredHandler(handler: (() => void) | null): void {
+  authExpiredHandler = handler;
 }
 
 export async function api<T = unknown>(
@@ -34,6 +39,9 @@ export async function api<T = unknown>(
     if (refreshed) {
       headers.set("Authorization", "Bearer " + accessToken);
       response = await fetch(path, { ...options, headers });
+    } else {
+      clearToken();
+      authExpiredHandler?.();
     }
   }
 

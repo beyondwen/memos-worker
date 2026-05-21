@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
 import Router, { route } from "preact-router";
-import { api, setToken, clearToken } from "./api";
+import { api, setToken, clearToken, setAuthExpiredHandler } from "./api";
 import { Header } from "./components/Header";
 import { Home } from "./pages/Home";
 import { AuthPage } from "./pages/AuthPage";
@@ -8,7 +8,9 @@ import { MemoDetailPage } from "./pages/MemoDetailPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { SharePage } from "./pages/SharePage";
-import { FeedbackProvider } from "./components/Feedback";
+import { InboxPage } from "./pages/InboxPage";
+import { FeedbackProvider, useFeedback } from "./components/Feedback";
+import { buildAuthRedirectPath, currentRoutePath } from "./authFlow";
 
 export interface CurrentUser {
   id: number;
@@ -21,6 +23,15 @@ export interface CurrentUser {
 }
 
 export function App() {
+  return (
+    <FeedbackProvider>
+      <AppContent />
+    </FeedbackProvider>
+  );
+}
+
+function AppContent() {
+  const { notify } = useFeedback();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
 
@@ -38,6 +49,15 @@ export function App() {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  useEffect(() => {
+    setAuthExpiredHandler(() => {
+      setCurrentUser(null);
+      notify("登录已过期，请重新登录", "error");
+      route(buildAuthRedirectPath(currentRoutePath()), true);
+    });
+    return () => setAuthExpiredHandler(null);
+  }, [notify]);
 
   const handleLogin = useCallback((user: CurrentUser, accessToken: string) => {
     setToken(accessToken);
@@ -64,7 +84,7 @@ export function App() {
   }
 
   return (
-    <FeedbackProvider>
+    <>
       <Header currentUser={currentUser} onLogout={handleLogout} />
       <Router>
         <Home path="/" currentUser={currentUser} />
@@ -75,9 +95,10 @@ export function App() {
         />
         <MemoDetailPage path="/memos/:uid" currentUser={currentUser} />
         <ExplorePage path="/explore" currentUser={currentUser} />
+        <InboxPage path="/inbox" currentUser={currentUser} />
         <SettingsPage path="/settings" currentUser={currentUser} />
         <SharePage path="/shares/:uid" />
       </Router>
-    </FeedbackProvider>
+    </>
   );
 }
