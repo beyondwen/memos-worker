@@ -102,9 +102,9 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
 
   const handleArchive = async () => {
     const ok = await confirm({
-      title: "归档这条备忘录？",
-      message: "归档后会从当前列表中移除。",
-      confirmText: "归档",
+      title: "删除这条备忘录？",
+      message: "会移入回收站，之后可以恢复或彻底删除。",
+      confirmText: "删除",
       danger: true,
     });
     if (!ok) return;
@@ -114,9 +114,9 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
         body: JSON.stringify({ rowStatus: "ARCHIVED" }),
       });
       onUpdate?.({ ...memo, rowStatus: "ARCHIVED" });
-      notify("备忘录已归档", "success");
+      notify("备忘录已删除到回收站", "success");
     } catch (err) {
-      notify(`归档失败：${(err as Error).message}`, "error");
+      notify(`删除失败：${(err as Error).message}`, "error");
     }
   };
 

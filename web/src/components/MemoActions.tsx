@@ -57,8 +57,8 @@ export function MemoActions({
         </>
       )}
       {isOwner && !archived && (
-        <button class="memo-action-icon" title="归档" aria-label="归档" onClick={onArchive}>
-          <span aria-hidden="true">▣</span>
+        <button class="memo-action-icon danger" title="删除" aria-label="删除" onClick={onArchive}>
+          <span aria-hidden="true">×</span>
         </button>
       )}
       <button class="memo-action-icon" title="表态" aria-label="表态" onClick={onReact}>

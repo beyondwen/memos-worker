@@ -273,6 +273,7 @@ describe("bulk memo helpers", () => {
   });
 
   it("labels destructive bulk actions clearly", () => {
+    expect(bulkMemoActionLabel("ARCHIVE")).toBe("删除");
     expect(bulkMemoActionLabel("DELETE")).toBe("彻底删除");
   });
 });

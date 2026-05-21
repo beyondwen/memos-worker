@@ -233,7 +233,7 @@ export function MemoList({
             <div class="bulk-actions">
               {state === "NORMAL" ? (
                 <button class="btn btn-secondary btn-sm" onClick={() => runBulkAction("ARCHIVE")} disabled={bulkWorking}>
-                  归档
+                  删除
                 </button>
               ) : (
                 <>

@@ -29,7 +29,7 @@ export function buildBulkMemoRequest(
 
 export function bulkMemoActionLabel(action: BulkMemoAction): string {
   return {
-    ARCHIVE: "归档",
+    ARCHIVE: "删除",
     RESTORE: "恢复",
     DELETE: "彻底删除",
     VISIBILITY: "修改可见性",
