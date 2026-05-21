@@ -55,10 +55,30 @@ export function Home({ currentUser }: HomeProps) {
   const endpoint = activeTag
     ? `/api/v1/memos?tag=${encodeURIComponent(activeTag)}`
     : "/api/v1/memos";
+  const hasSidebar = tags.length > 0;
+  const todayLabel = new Date().toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  });
 
   return (
-    <div class="layout">
+    <div class={`layout${hasSidebar ? "" : " layout-single"}`}>
       <div class="main-content">
+        <div class="home-toolbar">
+          <div>
+            <div class="home-kicker">Today</div>
+            <h1>今天</h1>
+            <p>{todayLabel}</p>
+          </div>
+          {activeTag && (
+            <button class="tag-clear" onClick={() => setActiveTag("")}>
+              清除 #{activeTag}
+            </button>
+          )}
+        </div>
+
         <MemoEditor onCreated={handleCreated} />
         <MemoList
           key={`${activeTag}-${refreshKey}`}
@@ -70,8 +90,8 @@ export function Home({ currentUser }: HomeProps) {
         />
       </div>
 
-      <aside class="sidebar">
-        {tags.length > 0 && (
+      {hasSidebar && (
+        <aside class="sidebar">
           <div class="sidebar-section">
             <div class="sidebar-title">标签</div>
             <div class="tag-list">
@@ -86,8 +106,8 @@ export function Home({ currentUser }: HomeProps) {
               ))}
             </div>
           </div>
-        )}
-      </aside>
+        </aside>
+      )}
     </div>
   );
 }

@@ -69,7 +69,7 @@ export function MemoList({ endpoint, showEditor, currentUser, tag, refreshKey }:
   }, []);
 
   return (
-    <div>
+    <div class="memo-list">
       {memos.length === 0 && !loading && (
         <div class="empty-state">
           <div class="empty-state-icon">📝</div>
@@ -78,7 +78,7 @@ export function MemoList({ endpoint, showEditor, currentUser, tag, refreshKey }:
       )}
 
       {memos.map((memo) => (
-        <div key={memo.uid} style={{ marginBottom: "12px" }}>
+        <div key={memo.uid} class="memo-list-item">
           <MemoCard
             memo={memo}
             currentUser={currentUser}
