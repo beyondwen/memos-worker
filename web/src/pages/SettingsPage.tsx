@@ -114,8 +114,10 @@ interface AuditLog {
   id: number;
   createdTs: number;
   actorUsername: string | null;
+  action?: string;
   actionLabel: string;
   target: string;
+  detail?: Record<string, unknown>;
 }
 
 type SettingsTab = "account" | "integrations" | "data" | "maintenance" | "audit";
@@ -144,6 +146,25 @@ function parseMigrationStreamEvent(raw: string): { name: string; data: unknown }
     name,
     data: JSON.parse(dataLines.join("\n") || "{}"),
   };
+}
+
+function auditLogDetail(log: AuditLog): string {
+  const detail = log.detail ?? {};
+  if (log.action?.startsWith("migration.usememos")) {
+    const imported = Number(detail.imported ?? 0);
+    const skipped = Number(detail.skipped ?? 0);
+    const total = Number(detail.memoCount ?? 0);
+    const error = typeof detail.error === "string" ? detail.error : "";
+    if (error) return error;
+    if (total || imported || skipped) return `导入 ${imported}，跳过 ${skipped}，总计 ${total}`;
+    const baseUrl = typeof detail.baseUrl === "string" ? detail.baseUrl : "";
+    return baseUrl ? `来源 ${baseUrl}` : log.target;
+  }
+  if (log.action?.startsWith("backup.")) {
+    const size = Number(detail.size ?? 0);
+    return size ? `${log.target} · ${Math.round(size / 1024)} KB` : log.target;
+  }
+  return log.target;
 }
 
 export function SettingsPage({ currentUser }: SettingsPageProps) {
@@ -1379,7 +1400,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
                   <span class="delivery-name">{log.actorUsername ?? "system"}</span>
                   <span class="delivery-time">{new Date(log.createdTs * 1000).toLocaleString("zh-CN")}</span>
                 </div>
-                <span class="delivery-error">{log.target}</span>
+                <span class="delivery-error">{auditLogDetail(log)}</span>
               </div>
             ))}
             {auditLogs.length === 0 && <div class="muted-line">暂无审计记录。</div>}

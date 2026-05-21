@@ -18,7 +18,7 @@ const ACCESS_COOKIE: &str = "memos_access";
 const REFRESH_COOKIE: &str = "memos_refresh";
 const ACCESS_TTL: i64 = 15 * 60;
 const REFRESH_TTL: i64 = 30 * 24 * 60 * 60;
-const MIGRATION_PAGE_SIZE: usize = 1000;
+const MIGRATION_PAGE_SIZE: usize = 100;
 const MIGRATION_MAX_MEMOS: usize = 10000;
 
 #[derive(Debug)]
@@ -966,6 +966,7 @@ async fn migration_import_stream(req: &mut Request, env: &Env, viewer: &Viewer) 
     let (sender, receiver) = mpsc::unbounded::<Vec<u8>>();
     wasm_bindgen_futures::spawn_local(async move {
         let mut sender = sender;
+        record_migration_start_audit(&env, &viewer, &options).await;
         let result = import_original_memos_streaming(&env, &viewer, &options, |event, progress| {
             send_sse_chunk(&mut sender, event, progress)
         }).await;
@@ -975,6 +976,7 @@ async fn migration_import_stream(req: &mut Request, env: &Env, viewer: &Viewer) 
                 let _ = send_sse_chunk(&mut sender, "done", &progress);
             }
             Err(error) => {
+                record_migration_error_audit(&env, &viewer, &options, &error.message).await;
                 let _ = send_sse_chunk(&mut sender, "error", &json!({ "error": error.message }));
             }
         }
@@ -1133,10 +1135,12 @@ where
         state: None,
     };
     on_progress("progress", &progress)?;
+    let mut imported_original_names = BTreeSet::new();
 
     for state in states {
         let mut page_token = String::new();
         loop {
+            let previous_page_token = page_token.clone();
             progress.phase = "fetching".to_string();
             progress.state = Some(state.to_string());
             on_progress("progress", &progress)?;
@@ -1150,6 +1154,7 @@ where
             }
 
             let (memos, next_page_token) = fetch_original_memos_page(options, url.as_str()).await?;
+            let existing_names = existing_imported_original_names(env, viewer.id, &memos).await?;
             progress.phase = "importing".to_string();
             for memo in memos {
                 if progress.memo_count >= MIGRATION_MAX_MEMOS {
@@ -1162,7 +1167,13 @@ where
                 if normalize_original_state(memo.state.as_deref()) == "ARCHIVED" {
                     progress.archived_count += 1;
                 }
-                if import_single_original_memo(env, viewer, &memo).await? {
+                let original_name = original_memo_name(&memo);
+                let already_imported = !original_name.is_empty()
+                    && (existing_names.contains(&original_name) || imported_original_names.contains(&original_name));
+                if import_single_original_memo_inner(env, viewer, &memo, already_imported).await? {
+                    if !original_name.is_empty() {
+                        imported_original_names.insert(original_name);
+                    }
                     progress.imported += 1;
                 } else {
                     progress.skipped += 1;
@@ -1173,6 +1184,9 @@ where
 
             if progress.truncated || next_page_token.is_empty() {
                 break;
+            }
+            if next_page_token == previous_page_token {
+                return Err(AppError::new(400, "Original Memos API returned a repeated page token"));
             }
             page_token = next_page_token;
         }
@@ -1187,12 +1201,18 @@ where
 }
 
 async fn import_single_original_memo(env: &Env, viewer: &Viewer, memo: &OriginalMemo) -> std::result::Result<bool, AppError> {
+    let original_name = original_memo_name(memo);
+    let already_imported = !original_name.is_empty() && has_imported_original_memo(env, viewer.id, &original_name).await?;
+    import_single_original_memo_inner(env, viewer, memo, already_imported).await
+}
+
+async fn import_single_original_memo_inner(env: &Env, viewer: &Viewer, memo: &OriginalMemo, already_imported: bool) -> std::result::Result<bool, AppError> {
     let content = memo.content.as_deref().unwrap_or("").trim().to_string();
     if content.is_empty() {
         return Ok(false);
     }
-    let original_name = memo.name.as_deref().unwrap_or("").trim().to_string();
-    if !original_name.is_empty() && has_imported_original_memo(env, viewer.id, &original_name).await? {
+    let original_name = original_memo_name(memo);
+    if already_imported {
         return Ok(false);
     }
     let now = unix_now();
@@ -1237,12 +1257,39 @@ async fn import_single_original_memo(env: &Env, viewer: &Viewer, memo: &Original
     Ok(true)
 }
 
+async fn existing_imported_original_names(env: &Env, creator_id: i64, memos: &[OriginalMemo]) -> std::result::Result<BTreeSet<String>, AppError> {
+    let names: BTreeSet<String> = memos.iter()
+        .map(original_memo_name)
+        .filter(|name| !name.is_empty())
+        .collect();
+    if names.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+    let mut values = vec![js_num(creator_id)];
+    values.extend(names.iter().map(|name| name.clone().into()));
+    let rows = db(env)?.prepare(format!(
+        "SELECT json_extract(payload, '$.source.originalName') AS original_name FROM memo WHERE creator_id = ? AND json_extract(payload, '$.source.type') = 'usememos' AND json_extract(payload, '$.source.originalName') IN ({})",
+        placeholders(names.len())
+    ))
+        .bind(&values)?
+        .all()
+        .await?;
+    let values: Vec<Value> = rows.results()?;
+    Ok(values.into_iter()
+        .filter_map(|row| row.get("original_name").and_then(Value::as_str).map(ToString::to_string))
+        .collect())
+}
+
 async fn has_imported_original_memo(env: &Env, creator_id: i64, original_name: &str) -> std::result::Result<bool, AppError> {
     let row: Option<i64> = db(env)?.prepare("SELECT id FROM memo WHERE creator_id = ? AND json_extract(payload, '$.source.type') = 'usememos' AND json_extract(payload, '$.source.originalName') = ? LIMIT 1")
         .bind(&[js_num(creator_id), original_name.into()])?
         .first(Some("id"))
         .await?;
     Ok(row.is_some())
+}
+
+fn original_memo_name(memo: &OriginalMemo) -> String {
+    memo.name.as_deref().unwrap_or("").trim().to_string()
 }
 
 fn summarize_original_memos(memos: &[OriginalMemo], truncated: bool) -> MigrationSummary {
@@ -1327,6 +1374,20 @@ async fn record_migration_audit(env: &Env, viewer: &Viewer, options: &MigrationO
         "relationCount": progress.relation_count,
         "archivedCount": progress.archived_count,
         "truncated": progress.truncated
+    })).await;
+}
+
+async fn record_migration_start_audit(env: &Env, viewer: &Viewer, options: &MigrationOptions) {
+    record_audit(env, Some(viewer), "migration.usememos.start", "usememos", json!({
+        "baseUrl": options.base_url,
+        "includeArchived": options.include_archived
+    })).await;
+}
+
+async fn record_migration_error_audit(env: &Env, viewer: &Viewer, options: &MigrationOptions, message: &str) {
+    record_audit(env, Some(viewer), "migration.usememos.error", "usememos", json!({
+        "baseUrl": options.base_url,
+        "error": message
     })).await;
 }
 
@@ -2679,7 +2740,9 @@ fn audit_action_label(action: &str) -> &str {
         "attachment.delete" => "删除附件",
         "backup.create" => "创建备份",
         "backup.restore" => "恢复备份",
+        "migration.usememos.start" => "开始迁移原版 Memos",
         "migration.usememos.import" => "迁移原版 Memos",
+        "migration.usememos.error" => "迁移原版 Memos 失败",
         "webhook.create" => "创建 Webhook",
         "webhook.delete" => "删除 Webhook",
         "tag.rename" => "重命名标签",
