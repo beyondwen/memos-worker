@@ -216,6 +216,48 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .page-toolbar {
   padding-bottom: 4px;
 }
+.filter-panel {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px; background: rgba(255,255,255,0.72);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+.view-switch {
+  display: inline-flex; align-items: center; padding: 3px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: #f8f8f4;
+}
+.view-switch button {
+  min-height: 30px; padding: 4px 12px; border-radius: 5px;
+  color: var(--muted); font-size: 0.8125rem; font-weight: 700;
+}
+.view-switch button.active {
+  background: var(--paper); color: var(--ink); box-shadow: var(--shadow-sm);
+}
+.search-box {
+  flex: 1; min-width: 220px;
+  display: flex; align-items: center; gap: 8px;
+  min-height: 38px; padding: 0 12px;
+  background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.search-box span { color: var(--text-secondary); font-size: 0.95rem; }
+.search-box input {
+  width: 100%; border: none; outline: none; background: transparent;
+  font-size: 0.9rem;
+}
+.filter-select {
+  min-height: 38px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--paper); color: var(--muted);
+  font-size: 0.875rem;
+}
+.filter-select:focus,
+.search-box:focus-within {
+  outline: none; border-color: var(--line-strong);
+  box-shadow: 0 0 0 3px rgba(84,117,92,0.1);
+}
 
 /* ── Editor ──────────────────────────────── */
 .editor-card {
@@ -287,6 +329,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   color: var(--muted);
 }
 .inline-clear:hover { background: var(--accent-soft); color: var(--ink); }
+.hidden-file-input { display: none; }
 
 /* ── Memo Card ───────────────────────────── */
 .memo-card {
@@ -606,6 +649,9 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   .auth-card { padding: 28px 24px; }
   .memo-card { padding: 16px; }
   .memo-actions { opacity: 1; }
+  .filter-panel { align-items: stretch; }
+  .search-box { min-width: 100%; }
+  .filter-select { flex: 1; min-width: 150px; }
 }
 
 @media (max-width: 480px) {
@@ -617,4 +663,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   .visibility-segment button { flex: 1; }
   .memo-actions { flex-wrap: wrap; }
   .inline-form { flex-direction: column; align-items: stretch; }
+  .view-switch { width: 100%; }
+  .view-switch button { flex: 1; }
+  .filter-select { width: 100%; }
 }

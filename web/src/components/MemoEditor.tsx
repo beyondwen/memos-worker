@@ -1,18 +1,26 @@
-import { useState, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api";
 import { useFeedback } from "./Feedback";
+import { clearEditorDraft, loadEditorDraft, saveEditorDraft } from "../editorDraft";
+import type { MemoVisibility } from "../memoQuery";
 
 interface Attachment { uid: string; filename: string; }
 interface MemoEditorProps { onCreated: (memo: unknown) => void; }
 
 export function MemoEditor({ onCreated }: MemoEditorProps) {
   const { notify } = useFeedback();
-  const [content, setContent] = useState("");
-  const [visibility, setVisibility] = useState<"PRIVATE" | "PROTECTED" | "PUBLIC">("PRIVATE");
-  const [attachmentUids, setAttachmentUids] = useState<string[]>([]);
+  const storage = typeof window === "undefined" ? null : window.localStorage;
+  const [initialDraft] = useState(() => loadEditorDraft(storage));
+  const [content, setContent] = useState(initialDraft?.content ?? "");
+  const [visibility, setVisibility] = useState<MemoVisibility>(initialDraft?.visibility ?? "PRIVATE");
+  const [attachmentUids, setAttachmentUids] = useState<string[]>(initialDraft?.attachmentUids ?? []);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    saveEditorDraft(storage, { content, visibility, attachmentUids });
+  }, [attachmentUids, content, storage, visibility]);
 
   const handleFile = async (e: Event) => {
     const input = e.target as HTMLInputElement;
@@ -38,6 +46,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         method: "POST",
         body: JSON.stringify({ content: trimmed, visibility, attachmentUids }),
       });
+      clearEditorDraft(storage);
       setContent(""); setAttachmentUids([]); onCreated(data.memo); notify("备忘录已发布", "success");
     } catch (err) { notify(`创建失败：${(err as Error).message}`, "error"); }
     finally { setSubmitting(false); }
@@ -76,7 +85,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
           ))}
         </div>
 
-        <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={handleFile} />
+        <input ref={fileRef} type="file" multiple class="hidden-file-input" onChange={handleFile} />
         <button class="btn btn-ghost btn-sm tool-button" onClick={() => fileRef.current?.click()} disabled={uploading}>
           <span aria-hidden="true">+</span>
           {uploading ? "上传中" : "附件"}

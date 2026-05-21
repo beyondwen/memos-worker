@@ -115,6 +115,19 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
     }
   };
 
+  const handleRestore = async () => {
+    try {
+      const data = await api<{ memo: Memo }>(`/api/v1/memos/${memo.uid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ rowStatus: "NORMAL" }),
+      });
+      onUpdate?.(data.memo);
+      notify("备忘录已恢复", "success");
+    } catch (err) {
+      notify(`恢复失败：${(err as Error).message}`, "error");
+    }
+  };
+
   const loadReactions = useCallback(async () => {
     if (reactionsLoaded) return;
     try {
@@ -377,7 +390,12 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
             ✎
           </button>
         )}
-        {isOwner && (
+        {isOwner && memo.rowStatus === "ARCHIVED" && (
+          <button class="memo-action-icon" title="恢复" aria-label="恢复" onClick={handleRestore}>
+            ↺
+          </button>
+        )}
+        {isOwner && memo.rowStatus !== "ARCHIVED" && (
           <button class="memo-action-icon" title="归档" aria-label="归档" onClick={handleArchive}>
             □
           </button>

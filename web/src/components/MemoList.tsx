@@ -3,6 +3,7 @@ import { api } from "../api";
 import { MemoCard } from "./MemoCard";
 import type { Memo } from "./MemoCard";
 import type { CurrentUser } from "../App";
+import { buildMemoListPath, type MemoPropertyFilter, type MemoState, type MemoVisibility } from "../memoQuery";
 
 interface MemoListResponse {
   memos: Memo[];
@@ -10,14 +11,28 @@ interface MemoListResponse {
 }
 
 interface MemoListProps {
-  endpoint: string;
-  showEditor: boolean;
+  endpoint?: string;
   currentUser: CurrentUser | null;
   tag?: string;
+  visibility?: MemoVisibility;
+  state?: MemoState;
+  search?: string;
+  propertyFilter?: MemoPropertyFilter;
   refreshKey?: number;
+  emptyText?: string;
 }
 
-export function MemoList({ endpoint, showEditor, currentUser, tag, refreshKey }: MemoListProps) {
+export function MemoList({
+  endpoint = "/api/v1/memos",
+  currentUser,
+  tag,
+  visibility,
+  state = "NORMAL",
+  search,
+  propertyFilter,
+  refreshKey,
+  emptyText = "暂无备忘录",
+}: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>([]);
   const [nextPageToken, setNextPageToken] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,13 +40,18 @@ export function MemoList({ endpoint, showEditor, currentUser, tag, refreshKey }:
 
   const buildUrl = useCallback(
     (pageToken?: string) => {
-      const url = new URL(endpoint, window.location.origin);
-      if (tag) url.searchParams.set("tag", tag);
-      if (pageToken) url.searchParams.set("page_token", pageToken);
-      url.searchParams.set("page_size", "20");
-      return url.pathname + url.search;
+      return buildMemoListPath({
+        basePath: endpoint,
+        tag,
+        visibility,
+        state,
+        search,
+        propertyFilter,
+        pageToken,
+        pageSize: 20,
+      });
     },
-    [endpoint, tag]
+    [endpoint, propertyFilter, search, state, tag, visibility]
   );
 
   const fetchMemos = useCallback(
@@ -61,19 +81,19 @@ export function MemoList({ endpoint, showEditor, currentUser, tag, refreshKey }:
   }, [fetchMemos, refreshKey]);
 
   const handleMemoUpdate = useCallback((updated: Memo) => {
-    if (updated.rowStatus === "ARCHIVED") {
+    if (updated.rowStatus !== state) {
       setMemos((prev) => prev.filter((m) => m.uid !== updated.uid));
     } else {
       setMemos((prev) => prev.map((m) => (m.uid === updated.uid ? updated : m)));
     }
-  }, []);
+  }, [state]);
 
   return (
     <div class="memo-list">
       {memos.length === 0 && !loading && (
         <div class="empty-state">
           <div class="empty-state-icon">📝</div>
-          暂无备忘录
+          {emptyText}
         </div>
       )}
 
