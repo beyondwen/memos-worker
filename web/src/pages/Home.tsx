@@ -6,6 +6,7 @@ import { MemoList } from "../components/MemoList";
 import type { CurrentUser } from "../App";
 import type { Memo } from "../components/MemoCard";
 import type { MemoPropertyFilter, MemoState, MemoVisibility } from "../memoQuery";
+import { buildAdvancedMemoFilter, type PinnedFilter } from "../advancedSearch";
 
 interface HomeProps {
   path: string;
@@ -19,6 +20,11 @@ export function Home({ currentUser }: HomeProps) {
   const [search, setSearch] = useState("");
   const [visibility, setVisibility] = useState<MemoVisibility | "">("");
   const [propertyFilter, setPropertyFilter] = useState<MemoPropertyFilter | "">("");
+  const [creator, setCreator] = useState("");
+  const [pinnedFilter, setPinnedFilter] = useState<PinnedFilter>("");
+  const [createdAfter, setCreatedAfter] = useState("");
+  const [createdBefore, setCreatedBefore] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
 
   useEffect(() => {
@@ -62,9 +68,14 @@ export function Home({ currentUser }: HomeProps) {
     setSearch("");
     setVisibility("");
     setPropertyFilter("");
+    setCreator("");
+    setPinnedFilter("");
+    setCreatedAfter("");
+    setCreatedBefore("");
   };
 
-  const hasFilters = !!activeTag || !!search.trim() || !!visibility || !!propertyFilter;
+  const advancedFilter = buildAdvancedMemoFilter({ creator, pinned: pinnedFilter, createdAfter, createdBefore });
+  const hasFilters = !!activeTag || !!search.trim() || !!visibility || !!propertyFilter || !!advancedFilter;
   const hasSidebar = tags.length > 0;
   const todayLabel = new Date().toLocaleDateString("zh-CN", {
     year: "numeric",
@@ -139,17 +150,61 @@ export function Home({ currentUser }: HomeProps) {
             <option value="has_link">链接</option>
             <option value="has_code">代码</option>
           </select>
+
+          <button class="btn btn-ghost btn-sm" onClick={() => setShowAdvanced((value) => !value)}>
+            {showAdvanced ? "收起高级" : "高级筛选"}
+          </button>
         </div>
+
+        {showAdvanced && (
+          <div class="advanced-panel">
+            <input
+              class="form-input"
+              type="text"
+              placeholder="创建者用户名"
+              value={creator}
+              onInput={(e) => setCreator((e.target as HTMLInputElement).value)}
+            />
+            <select
+              class="filter-select"
+              value={pinnedFilter}
+              onChange={(e) => setPinnedFilter((e.target as HTMLSelectElement).value as PinnedFilter)}
+            >
+              <option value="">全部置顶状态</option>
+              <option value="PINNED">仅置顶</option>
+              <option value="UNPINNED">未置顶</option>
+            </select>
+            <label>
+              <span>开始日期</span>
+              <input
+                class="form-input"
+                type="date"
+                value={createdAfter}
+                onInput={(e) => setCreatedAfter((e.target as HTMLInputElement).value)}
+              />
+            </label>
+            <label>
+              <span>结束日期</span>
+              <input
+                class="form-input"
+                type="date"
+                value={createdBefore}
+                onInput={(e) => setCreatedBefore((e.target as HTMLInputElement).value)}
+              />
+            </label>
+          </div>
+        )}
 
         {viewState === "NORMAL" && <MemoEditor onCreated={handleCreated} />}
         <MemoList
-          key={`${activeTag}-${viewState}-${search}-${visibility}-${propertyFilter}-${refreshKey}`}
+          key={`${activeTag}-${viewState}-${search}-${visibility}-${propertyFilter}-${advancedFilter}-${refreshKey}`}
           currentUser={currentUser}
           tag={activeTag || undefined}
           state={viewState}
           search={search}
           visibility={visibility || undefined}
           propertyFilter={propertyFilter || undefined}
+          advancedFilter={advancedFilter}
           refreshKey={refreshKey}
           emptyText={viewState === "ARCHIVED" ? "暂无归档备忘录" : "暂无备忘录"}
         />

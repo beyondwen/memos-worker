@@ -5,6 +5,7 @@ import { MarkdownContent } from "../components/MarkdownContent";
 import { useFeedback } from "../components/Feedback";
 import { AttachmentList } from "../components/AttachmentList";
 import { ShareManager } from "../components/ShareManager";
+import { RelationPanel } from "../components/RelationPanel";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 import { buildShareUrl } from "../integrationHelpers";
 import type { CurrentUser } from "../App";
@@ -290,6 +291,8 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
       {currentUser?.id === memo.creator.id && (
         <ShareManager memoUid={memo.uid} />
       )}
+
+      <RelationPanel memoUid={memo.uid} canEdit={currentUser?.id === memo.creator.id} />
 
       <div class="comments-section">
         <h3>评论 ({comments.length})</h3>

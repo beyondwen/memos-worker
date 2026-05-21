@@ -9,6 +9,7 @@ interface MemoListPathOptions {
   state?: MemoState;
   search?: string;
   propertyFilter?: MemoPropertyFilter;
+  advancedFilter?: string;
   pageToken?: string;
   pageSize?: number;
 }
@@ -17,17 +18,19 @@ function quoteFilterString(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-export function buildMemoFilter(search?: string, propertyFilter?: MemoPropertyFilter): string {
+export function buildMemoFilter(search?: string, propertyFilter?: MemoPropertyFilter, advancedFilter?: string): string {
   const parts: string[] = [];
   const trimmed = search?.trim();
   if (trimmed) parts.push(`content.contains(${quoteFilterString(trimmed)})`);
   if (propertyFilter) parts.push(propertyFilter);
+  const advanced = advancedFilter?.trim();
+  if (advanced) parts.push(`(${advanced})`);
   return parts.join(" && ");
 }
 
 export function buildMemoListPath(options: MemoListPathOptions = {}): string {
   const url = new URL(options.basePath ?? "/api/v1/memos", "https://memos.local");
-  const filter = buildMemoFilter(options.search, options.propertyFilter);
+  const filter = buildMemoFilter(options.search, options.propertyFilter, options.advancedFilter);
 
   if (options.tag) url.searchParams.set("tag", options.tag);
   if (options.visibility) url.searchParams.set("visibility", options.visibility);

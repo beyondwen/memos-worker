@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildMemoListPath } from "../web/src/memoQuery";
+import { buildAdvancedMemoFilter } from "../web/src/advancedSearch";
+import { parseRelationInput } from "../web/src/relationView";
 import {
   clearEditorDraft,
   loadEditorDraft,
@@ -56,6 +58,37 @@ describe("memo list query builder", () => {
     const url = new URL(path, "https://example.test");
     expect(url.searchParams.has("filter")).toBe(false);
     expect(url.searchParams.get("page_size")).toBe("20");
+  });
+});
+
+describe("advanced memo filters", () => {
+  it("combines creator, pinned and date range filters", () => {
+    expect(buildAdvancedMemoFilter({
+      creator: "admin",
+      pinned: "PINNED",
+      createdAfter: "2026-05-01",
+      createdBefore: "2026-05-21",
+    })).toBe('creator == "admin" && pinned == true && created_ts >= 1777593600 && created_ts <= 1779321600');
+  });
+
+  it("omits empty advanced filters", () => {
+    expect(buildAdvancedMemoFilter({ creator: "  ", pinned: "" })).toBe("");
+  });
+});
+
+describe("relation input parser", () => {
+  it("parses memo refs from mixed input", () => {
+    expect(parseRelationInput("memos/a1\nb2, https://example.test/#/memos/c3")).toEqual([
+      { memo: "memos/a1", type: "REFERENCE" },
+      { memo: "memos/b2", type: "REFERENCE" },
+      { memo: "memos/c3", type: "REFERENCE" },
+    ]);
+  });
+
+  it("deduplicates and ignores blank relation refs", () => {
+    expect(parseRelationInput("a1, memos/a1,  ")).toEqual([
+      { memo: "memos/a1", type: "REFERENCE" },
+    ]);
   });
 });
 

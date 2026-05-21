@@ -2,9 +2,11 @@ interface MemoActionsProps {
   isOwner: boolean | null;
   archived: boolean;
   editing: boolean;
+  pinned: boolean;
   commentCount?: number;
   onOpen: () => void;
   onEdit: () => void;
+  onPin: () => void;
   onArchive: () => void;
   onRestore: () => void;
   onReact: () => void;
@@ -16,9 +18,11 @@ export function MemoActions({
   isOwner,
   archived,
   editing,
+  pinned,
   commentCount = 0,
   onOpen,
   onEdit,
+  onPin,
   onArchive,
   onRestore,
   onReact,
@@ -33,6 +37,11 @@ export function MemoActions({
       {isOwner && !editing && (
         <button class="memo-action-icon" title="编辑" aria-label="编辑" onClick={onEdit}>
           <span aria-hidden="true">✎</span>
+        </button>
+      )}
+      {isOwner && !editing && !archived && (
+        <button class="memo-action-icon" title={pinned ? "取消置顶" : "置顶"} aria-label={pinned ? "取消置顶" : "置顶"} onClick={onPin}>
+          <span aria-hidden="true">{pinned ? "★" : "☆"}</span>
         </button>
       )}
       {isOwner && archived && (

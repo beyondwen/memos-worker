@@ -118,6 +118,19 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
     }
   };
 
+  const handleTogglePinned = async () => {
+    try {
+      const data = await api<{ memo: Memo }>(`/api/v1/memos/${memo.uid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pinned: !memo.pinned }),
+      });
+      onUpdate?.(data.memo);
+      notify(data.memo.pinned ? "备忘录已置顶" : "已取消置顶", "success");
+    } catch (err) {
+      notify(`更新置顶失败：${(err as Error).message}`, "error");
+    }
+  };
+
   const handleRestore = async () => {
     try {
       const data = await api<{ memo: Memo }>(`/api/v1/memos/${memo.uid}`, {
@@ -374,9 +387,11 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
         isOwner={isOwner}
         archived={memo.rowStatus === "ARCHIVED"}
         editing={editing}
+        pinned={memo.pinned}
         commentCount={commentsLoaded ? comments.length : 0}
         onOpen={() => route(`/memos/${memo.uid}`)}
         onEdit={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}
+        onPin={handleTogglePinned}
         onArchive={handleArchive}
         onRestore={handleRestore}
         onReact={handleToggleReactions}

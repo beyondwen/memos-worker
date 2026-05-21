@@ -19,6 +19,7 @@ interface MemoListProps {
   state?: MemoState;
   search?: string;
   propertyFilter?: MemoPropertyFilter;
+  advancedFilter?: string;
   refreshKey?: number;
   emptyText?: string;
 }
@@ -31,6 +32,7 @@ export function MemoList({
   state = "NORMAL",
   search,
   propertyFilter,
+  advancedFilter,
   refreshKey,
   emptyText = "暂无备忘录",
 }: MemoListProps) {
@@ -48,11 +50,12 @@ export function MemoList({
         state,
         search,
         propertyFilter,
+        advancedFilter,
         pageToken,
         pageSize: 20,
       });
     },
-    [endpoint, propertyFilter, search, state, tag, visibility]
+    [advancedFilter, endpoint, propertyFilter, search, state, tag, visibility]
   );
 
   const fetchMemos = useCallback(
