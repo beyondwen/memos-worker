@@ -358,18 +358,24 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
       )}
 
       <div class="memo-actions">
-        <button onClick={() => route(`/memos/${memo.uid}`)}>查看</button>
+        <button class="memo-action-icon" title="查看详情" aria-label="查看详情" onClick={() => route(`/memos/${memo.uid}`)}>
+          ↗
+        </button>
         {isOwner && !editing && (
-          <button onClick={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}>
-            编辑
+          <button class="memo-action-icon" title="编辑" aria-label="编辑" onClick={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}>
+            ✎
           </button>
         )}
-        {isOwner && <button onClick={handleArchive}>归档</button>}
-        <button onClick={handleToggleReactions}>👍</button>
-        <button onClick={handleToggleComments}>
-          💬{commentsLoaded && comments.length > 0 ? ` ${comments.length}` : ""}
+        {isOwner && (
+          <button class="memo-action-icon" title="归档" aria-label="归档" onClick={handleArchive}>
+            □
+          </button>
+        )}
+        <button class="memo-action-icon" title="表态" aria-label="表态" onClick={handleToggleReactions}>+</button>
+        <button class="memo-action-icon" title="评论" aria-label="评论" onClick={handleToggleComments}>
+          ◌{commentsLoaded && comments.length > 0 ? comments.length : ""}
         </button>
-        <button onClick={handleShare}>🔗</button>
+        <button class="memo-action-icon" title="分享" aria-label="分享" onClick={handleShare}>⌁</button>
       </div>
     </div>
   );

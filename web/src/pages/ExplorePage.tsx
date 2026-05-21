@@ -15,14 +15,15 @@ export function ExplorePage({ currentUser }: ExplorePageProps) {
     : "/api/v1/memos?visibility=PUBLIC";
 
   return (
-    <div class="layout">
+    <div class="layout layout-single">
       <div class="main-content">
-        <h2 style={{ fontSize: "1.2rem", fontWeight: 600, marginBottom: "4px" }}>
-          发现
-        </h2>
-        <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "16px" }}>
-          所有用户的公开备忘录
-        </p>
+        <div class="home-toolbar page-toolbar">
+          <div>
+            <div class="home-kicker">Explore</div>
+            <h1>发现</h1>
+            <p>所有用户公开的备忘录</p>
+          </div>
+        </div>
         <MemoList
           endpoint={endpoint}
           showEditor={false}
