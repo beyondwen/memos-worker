@@ -678,21 +678,48 @@ async fn list_memos(env: &Env, url: &Url, viewer: &Viewer) -> std::result::Resul
         .and_then(|(_, value)| value.parse::<i64>().ok())
         .unwrap_or(20)
         .clamp(1, 200);
-    let state = extract_filter_value(url, "rowStatus").or_else(|| extract_filter_value(url, "row_status")).unwrap_or_else(|| "NORMAL".to_string());
-    let rows = if viewer.role == "ADMIN" {
-        db.prepare("SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE memo.row_status = ? ORDER BY memo.pinned DESC, memo.created_ts DESC, memo.id DESC LIMIT ?")
-            .bind(&[state.into(), js_num(limit)])?
-            .all()
-            .await?
-    } else {
-        db.prepare("SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE memo.row_status = ? AND (memo.visibility != 'PRIVATE' OR memo.creator_id = ?) ORDER BY memo.pinned DESC, memo.created_ts DESC, memo.id DESC LIMIT ?")
-            .bind(&[state.into(), js_num(viewer.id), js_num(limit)])?
-            .all()
-            .await?
-    };
+    let offset = query_param(url, "page_token")
+        .or_else(|| query_param(url, "pageToken"))
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0)
+        .max(0);
+    let state = query_param(url, "state")
+        .or_else(|| extract_filter_value(url, "rowStatus"))
+        .or_else(|| extract_filter_value(url, "row_status"))
+        .unwrap_or_else(|| "NORMAL".to_string());
+    let state = normalize_state(&state)?;
+    let mut where_sql = vec!["memo.row_status = ?".to_string()];
+    let mut values = vec![state.into()];
+    if viewer.role != "ADMIN" {
+        where_sql.push("(memo.visibility != 'PRIVATE' OR memo.creator_id = ?)".to_string());
+        values.push(js_num(viewer.id));
+    }
+    if let Some(visibility) = query_param(url, "visibility").filter(|value| !value.trim().is_empty()) {
+        where_sql.push("memo.visibility = ?".to_string());
+        values.push(normalize_visibility(&visibility)?.into());
+    }
+    if let Some(tag) = query_param(url, "tag").filter(|value| !value.trim().is_empty()) {
+        where_sql.push("EXISTS (SELECT 1 FROM json_each(memo.payload, '$.tags') WHERE value = ?)".to_string());
+        values.push(tag.into());
+    }
+    if let Some(search) = extract_content_contains_filter(url).filter(|value| !value.trim().is_empty()) {
+        where_sql.push("memo.content LIKE ? ESCAPE '\\'".to_string());
+        values.push(format!("%{}%", escape_like(&search)).into());
+    }
+    values.push(js_num(limit + 1));
+    values.push(js_num(offset));
+    let rows = db.prepare(format!(
+        "SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE {} ORDER BY memo.pinned DESC, memo.created_ts DESC, memo.id DESC LIMIT ? OFFSET ?",
+        where_sql.join(" AND ")
+    ))
+        .bind(&values)?
+        .all()
+        .await?;
     let memos: Vec<DbMemo> = rows.results()?;
-    let public: Vec<PublicMemo> = memos.into_iter().map(public_memo).collect();
-    json_response(json!({ "memos": public, "nextPageToken": "" }), 200).map_err(AppError::from)
+    let has_more = memos.len() as i64 > limit;
+    let public: Vec<PublicMemo> = memos.into_iter().take(limit as usize).map(public_memo).collect();
+    let next_page_token = if has_more { (offset + limit).to_string() } else { String::new() };
+    json_response(json!({ "memos": public, "nextPageToken": next_page_token }), 200).map_err(AppError::from)
 }
 
 async fn create_memo(req: &mut Request, env: &Env, viewer: &Viewer) -> std::result::Result<Response, AppError> {
@@ -2963,6 +2990,38 @@ fn extract_filter_value(url: &Url, field: &str) -> Option<String> {
     let rest = &filter[start..];
     let end = rest.find('"')?;
     Some(rest[..end].to_string())
+}
+
+fn query_param(url: &Url, field: &str) -> Option<String> {
+    url.query_pairs()
+        .find(|(key, _)| key == field)
+        .map(|(_, value)| value.to_string())
+}
+
+fn extract_content_contains_filter(url: &Url) -> Option<String> {
+    let filter = query_param(url, "filter")?;
+    let needle = "content.contains(\"";
+    let start = filter.find(needle)? + needle.len();
+    let rest = &filter[start..];
+    let mut value = String::new();
+    let mut escaped = false;
+    for ch in rest.chars() {
+        if escaped {
+            value.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(value);
+        } else {
+            value.push(ch);
+        }
+    }
+    None
+}
+
+fn escape_like(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 fn placeholders(count: usize) -> String {
