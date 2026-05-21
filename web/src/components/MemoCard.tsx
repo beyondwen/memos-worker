@@ -2,6 +2,7 @@ import { useState, useCallback } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
 import { MarkdownContent } from "./MarkdownContent";
+import { useFeedback } from "./Feedback";
 import type { CurrentUser } from "../App";
 
 export interface Memo {
@@ -46,6 +47,7 @@ interface MemoCardProps {
 const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
 
 export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
+  const { notify, confirm } = useFeedback();
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(memo.content);
   const [editVisibility, setEditVisibility] = useState(memo.visibility);
@@ -85,23 +87,31 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
       });
       setEditing(false);
       onUpdate?.(data.memo);
+      notify("备忘录已保存", "success");
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`保存失败：${(err as Error).message}`, "error");
     } finally {
       setSaving(false);
     }
   };
 
   const handleArchive = async () => {
-    if (!confirm("确定归档这条备忘录？")) return;
+    const ok = await confirm({
+      title: "归档这条备忘录？",
+      message: "归档后会从当前列表中移除。",
+      confirmText: "归档",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/v1/memos/${memo.uid}`, {
         method: "PATCH",
         body: JSON.stringify({ rowStatus: "ARCHIVED" }),
       });
       onUpdate?.({ ...memo, rowStatus: "ARCHIVED" });
+      notify("备忘录已归档", "success");
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`归档失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -131,7 +141,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
       setReactions(data.reactions);
       setReactionsLoaded(true);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`表态失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -143,7 +153,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
       );
       setReactions(data.reactions);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`取消表态失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -183,7 +193,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
       }
       setCommentContent("");
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`评论失败：${(err as Error).message}`, "error");
     } finally {
       setCommenting(false);
     }
@@ -203,7 +213,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
       setShareUrl(full);
       setShowShare(true);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`分享失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -350,6 +360,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
             class="btn btn-ghost btn-sm"
             onClick={() => {
               navigator.clipboard.writeText(shareUrl);
+              notify("分享链接已复制", "success");
             }}
           >
             复制

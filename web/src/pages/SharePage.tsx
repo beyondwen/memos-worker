@@ -59,6 +59,14 @@ export function SharePage({ uid }: SharePageProps) {
 
   return (
     <div class="memo-detail-page">
+      <div class="home-toolbar page-toolbar">
+        <div>
+          <div class="home-kicker">Shared Memo</div>
+          <h1>分享备忘录</h1>
+          <p>{formatDate(memo.createdTs)}</p>
+        </div>
+      </div>
+
       <div class="memo-card">
         <div class="memo-header">
           <span class="memo-creator">
@@ -89,7 +97,7 @@ export function SharePage({ uid }: SharePageProps) {
         )}
       </div>
 
-      <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "12px" }}>
+      <div class="share-footer">
         通过 Memos Worker 分享
       </div>
     </div>

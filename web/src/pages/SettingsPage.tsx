@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
+import { useFeedback } from "../components/Feedback";
 import type { CurrentUser } from "../App";
 
 interface SettingsPageProps {
@@ -27,6 +28,7 @@ interface NewPat {
 }
 
 export function SettingsPage({ currentUser }: SettingsPageProps) {
+  const { notify, confirm } = useFeedback();
   const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
   const [description, setDescription] = useState("");
@@ -87,7 +89,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
         method: "PATCH",
         body: JSON.stringify({ nickname, email, description, avatarUrl }),
       });
-              setProfileMsg("资料已更新。");
+      setProfileMsg("资料已更新。");
+      notify("资料已保存", "success");
     } catch (err) {
       setProfileMsg(`Error: ${(err as Error).message}`);
     } finally {
@@ -131,22 +134,29 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       setNewPatName("");
       fetchPats();
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`创建令牌失败：${(err as Error).message}`, "error");
     } finally {
       setPatCreating(false);
     }
   };
 
   const handleDeletePat = async (id: number) => {
-    if (!confirm("确定删除此令牌？")) return;
+    const ok = await confirm({
+      title: "删除此令牌？",
+      message: "删除后使用该令牌的客户端会立即失效。",
+      confirmText: "删除",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(
         `/api/v1/users/${currentUser.username}/access-tokens/${id}`,
         { method: "DELETE" }
       );
       fetchPats();
+      notify("令牌已删除", "success");
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`删除令牌失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -159,7 +169,13 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
 
   return (
     <div class="settings-layout">
-      <h1 style={{ fontSize: "1.4rem", fontWeight: 700 }}>设置</h1>
+      <div class="home-toolbar page-toolbar">
+        <div>
+          <div class="home-kicker">Settings</div>
+          <h1>设置</h1>
+          <p>管理资料、密码和访问令牌</p>
+        </div>
+      </div>
 
       <div class="settings-section">
         <h2>个人资料</h2>
@@ -201,7 +217,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
             />
           </div>
           {profileMsg && (
-            <div style={{ marginBottom: "12px", fontSize: "0.88rem", color: profileMsg.startsWith("Error") ? "var(--danger)" : "var(--success)" }}>
+            <div class={`inline-message ${profileMsg.startsWith("Error") ? "error" : "success"}`}>
               {profileMsg}
             </div>
           )}
@@ -236,7 +252,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           </div>
           {pwError && <div class="form-error">{pwError}</div>}
           {pwMsg && (
-            <div style={{ marginBottom: "12px", fontSize: "0.88rem", color: "var(--success)" }}>
+            <div class="inline-message success">
               {pwMsg}
             </div>
           )}
@@ -264,21 +280,20 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               <button
                 class="btn btn-ghost btn-sm"
                 onClick={() => handleDeletePat(pat.id)}
-                style={{ color: "var(--danger)" }}
               >
                 删除
               </button>
             </div>
           ))}
           {pats.length === 0 && (
-            <div style={{ color: "var(--text-muted)", fontSize: "0.88rem" }}>
+            <div class="muted-line">
               暂未创建令牌。
             </div>
           )}
         </div>
 
-        <form onSubmit={handleCreatePat} style={{ display: "flex", gap: "8px", alignItems: "end" }}>
-          <div class="form-group" style={{ flex: 1, marginBottom: 0 }}>
+        <form onSubmit={handleCreatePat} class="inline-form">
+          <div class="form-group">
             <input
               class="form-input"
               type="text"
@@ -294,7 +309,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
 
         {newPatResult && (
           <div class="pat-token-box">
-            <div style={{ marginBottom: "6px", fontWeight: 600 }}>
+            <div class="pat-token-title">
               令牌已创建！请立即复制，之后将不再显示。
             </div>
             <code>{newPatResult.token}</code>

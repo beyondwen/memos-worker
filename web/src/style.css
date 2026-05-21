@@ -213,6 +213,9 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   margin-top: 4px; color: var(--muted);
   font-size: 0.875rem;
 }
+.page-toolbar {
+  padding-bottom: 4px;
+}
 
 /* ── Editor ──────────────────────────────── */
 .editor-card {
@@ -477,6 +480,23 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   margin-top: 12px; font-family: var(--font-mono);
   font-size: 0.8125rem; word-break: break-all;
 }
+.pat-token-title {
+  margin-bottom: 6px; font-weight: 700; color: var(--ink);
+}
+.inline-form {
+  display: flex; gap: 8px; align-items: end;
+}
+.inline-form .form-group {
+  flex: 1; margin-bottom: 0;
+}
+.inline-message {
+  margin-bottom: 12px; font-size: 0.88rem;
+}
+.inline-message.success { color: var(--success); }
+.inline-message.error { color: var(--danger); }
+.muted-line {
+  color: var(--text-muted); font-size: 0.88rem; padding: 8px 0;
+}
 
 /* ── Detail Page ─────────────────────────── */
 .memo-detail-page {
@@ -496,6 +516,16 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .comments-section h3 {
   font-family: var(--font-serif); font-size: 1rem;
   font-weight: 600; margin-bottom: 12px; color: var(--ink);
+}
+.comment-card {
+  margin-bottom: 8px;
+}
+.reaction-picker {
+  margin-top: 6px;
+}
+.share-footer {
+  text-align: center; color: var(--text-muted);
+  font-size: 0.82rem; margin-top: 12px;
 }
 .share-url-box {
   display: flex; align-items: center; gap: 8px;
@@ -520,12 +550,40 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   padding: 10px 20px; background: var(--accent); color: #fff;
   border-radius: var(--radius); font-size: 0.875rem;
-  z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1200; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   animation: toast-in 0.2s ease;
 }
+.toast-success { background: #315c45; }
+.toast-error { background: #b91c1c; }
+.toast-info { background: var(--accent); }
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Confirm Dialog ─────────────────────── */
+.confirm-backdrop {
+  position: fixed; inset: 0; z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(36,36,33,0.28);
+  backdrop-filter: blur(6px);
+}
+.confirm-dialog {
+  width: min(380px, 100%);
+  background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 20px;
+  box-shadow: var(--shadow-lift);
+}
+.confirm-dialog h2 {
+  font-family: var(--font-serif); font-size: 1.15rem;
+  color: var(--ink); margin-bottom: 8px;
+}
+.confirm-dialog p {
+  color: var(--muted); font-size: 0.9rem; line-height: 1.6;
+}
+.confirm-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 18px;
 }
 
 /* ── Responsive ──────────────────────────── */
@@ -558,4 +616,5 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   .visibility-segment { width: 100%; }
   .visibility-segment button { flex: 1; }
   .memo-actions { flex-wrap: wrap; }
+  .inline-form { flex-direction: column; align-items: stretch; }
 }

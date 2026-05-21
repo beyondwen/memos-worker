@@ -8,6 +8,7 @@ import { MemoDetailPage } from "./pages/MemoDetailPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { SharePage } from "./pages/SharePage";
+import { FeedbackProvider } from "./components/Feedback";
 
 export interface CurrentUser {
   id: number;
@@ -63,7 +64,7 @@ export function App() {
   }
 
   return (
-    <>
+    <FeedbackProvider>
       <Header currentUser={currentUser} onLogout={handleLogout} />
       <Router>
         <Home path="/" currentUser={currentUser} />
@@ -77,6 +78,6 @@ export function App() {
         <SettingsPage path="/settings" currentUser={currentUser} />
         <SharePage path="/shares/:uid" />
       </Router>
-    </>
+    </FeedbackProvider>
   );
 }

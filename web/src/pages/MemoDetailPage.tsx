@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
 import { MarkdownContent } from "../components/MarkdownContent";
+import { useFeedback } from "../components/Feedback";
 import type { CurrentUser } from "../App";
 import type { Memo, Reaction } from "../components/MemoCard";
 
@@ -14,6 +15,7 @@ interface MemoDetailPageProps {
 const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
 
 export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
+  const { notify } = useFeedback();
   const [memo, setMemo] = useState<Memo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -83,7 +85,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
       if (data.memo) setComments((prev) => [...prev, data.memo]);
       setCommentContent("");
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`评论失败：${(err as Error).message}`, "error");
     } finally {
       setCommenting(false);
     }
@@ -102,7 +104,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
       );
       setReactions(data.reactions);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`表态失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -115,7 +117,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
       );
       setReactions(data.reactions);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`取消表态失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -133,7 +135,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
       setShareUrl(`${window.location.origin}/#/shares/${data.share.uid}`);
       setShowShare(true);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      notify(`分享失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -173,13 +175,20 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
 
   return (
     <div class="memo-detail-page">
-      <a
-        href="/"
-        class="back-link"
-        onClick={(e) => { e.preventDefault(); route("/"); }}
-      >
-        &larr; 返回
-      </a>
+      <div class="home-toolbar page-toolbar">
+        <div>
+          <div class="home-kicker">Memo</div>
+          <h1>备忘录详情</h1>
+          <p>{formatDate(memo.createdTs)}</p>
+        </div>
+        <a
+          href="/"
+          class="tag-clear"
+          onClick={(e) => { e.preventDefault(); route("/"); }}
+        >
+          返回首页
+        </a>
+      </div>
 
       <div class="memo-card">
         <div class="memo-header">
@@ -229,7 +238,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         )}
 
         {showReactionPicker && (
-          <div class="memo-reactions" style={{ marginTop: "6px" }}>
+          <div class="memo-reactions reaction-picker">
             {EMOJI_OPTIONS.map((emoji) => (
               <button
                 key={emoji}
@@ -247,7 +256,10 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
             <input type="text" readOnly value={shareUrl} onClick={(e) => (e.target as HTMLInputElement).select()} />
             <button
               class="btn btn-ghost btn-sm"
-              onClick={() => navigator.clipboard.writeText(shareUrl)}
+              onClick={() => {
+                navigator.clipboard.writeText(shareUrl);
+                notify("分享链接已复制", "success");
+              }}
             >
               复制
             </button>
@@ -268,7 +280,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         <h3>评论 ({comments.length})</h3>
 
         {comments.map((c) => (
-          <div key={c.uid} class="memo-card" style={{ marginBottom: "8px" }}>
+          <div key={c.uid} class="memo-card comment-card">
             <div class="memo-header">
               <span class="memo-creator">
                 {c.creator.nickname || c.creator.username}
@@ -280,7 +292,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         ))}
 
         {comments.length === 0 && (
-          <div style={{ color: "var(--text-muted)", fontSize: "0.88rem", padding: "8px 0" }}>
+          <div class="muted-line">
             暂无评论。
           </div>
         )}
@@ -294,7 +306,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
               onInput={(e) =>
                 setCommentContent((e.target as HTMLTextAreaElement).value)
               }
-              style={{ minHeight: "70px" }}
+              rows={3}
             />
             <button
               class="btn btn-primary btn-sm"

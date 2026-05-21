@@ -1,10 +1,12 @@
 import { useState, useRef } from "preact/hooks";
 import { api } from "../api";
+import { useFeedback } from "./Feedback";
 
 interface Attachment { uid: string; filename: string; }
 interface MemoEditorProps { onCreated: (memo: unknown) => void; }
 
 export function MemoEditor({ onCreated }: MemoEditorProps) {
+  const { notify } = useFeedback();
   const [content, setContent] = useState("");
   const [visibility, setVisibility] = useState<"PRIVATE" | "PROTECTED" | "PUBLIC">("PRIVATE");
   const [attachmentUids, setAttachmentUids] = useState<string[]>([]);
@@ -23,7 +25,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         const data = await api<{ attachment: Attachment }>("/api/v1/attachments", { method: "POST", body: form });
         if (data.attachment) setAttachmentUids((p) => [...p, data.attachment.uid]);
       }
-    } catch (err) { alert(`上传失败：${(err as Error).message}`); }
+    } catch (err) { notify(`上传失败：${(err as Error).message}`, "error"); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   };
 
@@ -36,8 +38,8 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         method: "POST",
         body: JSON.stringify({ content: trimmed, visibility, attachmentUids }),
       });
-      setContent(""); setAttachmentUids([]); onCreated(data.memo);
-    } catch (err) { alert(`创建失败：${(err as Error).message}`); }
+      setContent(""); setAttachmentUids([]); onCreated(data.memo); notify("备忘录已发布", "success");
+    } catch (err) { notify(`创建失败：${(err as Error).message}`, "error"); }
     finally { setSubmitting(false); }
   };
 
