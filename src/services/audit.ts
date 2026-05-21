@@ -8,6 +8,7 @@ export function auditActionLabel(action: string): string {
     "attachment.delete": "删除附件",
     "backup.create": "创建备份",
     "backup.restore": "恢复备份",
+    "migration.usememos.import": "迁移原版 Memos",
     "webhook.create": "创建 Webhook",
     "webhook.delete": "删除 Webhook",
     "tag.rename": "重命名标签",

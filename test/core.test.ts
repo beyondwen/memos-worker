@@ -5,6 +5,7 @@ import { buildWebhookTestBody, deliveryStatusFromResponse, formatWebhookError } 
 import { backupRetentionCutoff, buildBackupObjectKey, previewBackupPayload } from "../src/services/backup";
 import { normalizeTagName, replaceTagInContent } from "../src/services/tags";
 import { auditActionLabel } from "../src/services/audit";
+import { mapOriginalMemoToImport, normalizeMemosBaseUrl, summarizeOriginalMemos } from "../src/services/migration";
 
 describe("password hashing", () => {
   it("verifies a valid PBKDF2 password and rejects a wrong password", async () => {
@@ -214,5 +215,58 @@ describe("audit helpers", () => {
   it("labels known audit actions", () => {
     expect(auditActionLabel("backup.restore")).toBe("恢复备份");
     expect(auditActionLabel("unknown.action")).toBe("unknown.action");
+  });
+});
+
+describe("original Memos migration helpers", () => {
+  it("normalizes original Memos base URLs", () => {
+    expect(normalizeMemosBaseUrl(" https://demo.usememos.com/ ")).toBe("https://demo.usememos.com");
+    expect(() => normalizeMemosBaseUrl("ftp://demo.usememos.com")).toThrow("Only http and https URLs are supported");
+  });
+
+  it("maps original Memos API records into local memo inserts", () => {
+    const mapped = mapOriginalMemoToImport({
+      name: "memos/101",
+      state: "STATE_ARCHIVED",
+      content: "hello #work",
+      visibility: "VISIBILITY_PUBLIC",
+      createTime: "2026-05-21T00:00:00Z",
+      updateTime: "2026-05-21T01:00:00Z",
+      tags: ["work"],
+      pinned: true,
+      attachments: [{ name: "attachments/1", filename: "a.png" }],
+      relations: [{ type: "REFERENCE" }]
+    }, 7);
+
+    expect(mapped).toMatchObject({
+      creatorId: 7,
+      content: "hello #work",
+      createdTs: 1779321600,
+      updatedTs: 1779325200,
+      rowStatus: "ARCHIVED",
+      visibility: "PUBLIC",
+      pinned: 1,
+      originalName: "memos/101"
+    });
+    expect(mapped.payload.tags).toEqual(["work"]);
+    expect(mapped.payload.source).toMatchObject({
+      type: "usememos",
+      originalName: "memos/101",
+      attachmentCount: 1,
+      relationCount: 1
+    });
+  });
+
+  it("summarizes original Memos records for preview", () => {
+    expect(summarizeOriginalMemos([
+      { name: "memos/1", state: "NORMAL", attachments: [{ name: "a" }] },
+      { name: "memos/2", state: "ARCHIVED", relations: [{ type: "REFERENCE" }] }
+    ])).toEqual({
+      memoCount: 2,
+      attachmentCount: 1,
+      relationCount: 1,
+      archivedCount: 1,
+      truncated: false
+    });
   });
 });

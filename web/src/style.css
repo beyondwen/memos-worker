@@ -966,6 +966,31 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   border-radius: var(--radius-sm);
   color: var(--ink); font-size: 0.82rem;
 }
+.migration-form {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px; align-items: end;
+}
+.migration-option {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 42px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: rgba(248,250,247,0.78);
+  color: var(--ink); font-size: 0.9rem; font-weight: 700;
+}
+.migration-option input {
+  width: 16px; height: 16px; accent-color: #315c45;
+}
+.migration-summary {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 12px;
+}
+.migration-summary span {
+  display: inline-flex; align-items: center; min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid #dbe5dd; border-radius: 999px;
+  background: rgba(248,250,247,0.86);
+  color: #315c45; font-size: 0.82rem; font-weight: 700;
+}
 .settings-tag-list {
   margin-bottom: 14px;
 }
@@ -1202,5 +1227,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   .filter-select { width: 100%; }
   .settings-actions .btn,
   .file-label { width: 100%; }
+  .migration-form { grid-template-columns: 1fr; }
+  .migration-option { width: 100%; }
   .memo-action-icon { min-width: 34px; }
 }

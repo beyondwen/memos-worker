@@ -80,6 +80,19 @@ interface BackupPreview {
   relationCount: number;
 }
 
+interface MigrationPreview {
+  memoCount: number;
+  attachmentCount: number;
+  relationCount: number;
+  archivedCount: number;
+  truncated: boolean;
+}
+
+interface MigrationResult extends MigrationPreview {
+  imported: number;
+  skipped: number;
+}
+
 interface TagItem {
   name: string;
   count: number;
@@ -140,6 +153,13 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(null);
   const [restoringBackupKey, setRestoringBackupKey] = useState("");
+  const [migrationBaseUrl, setMigrationBaseUrl] = useState("");
+  const [migrationToken, setMigrationToken] = useState("");
+  const [migrationIncludeArchived, setMigrationIncludeArchived] = useState(false);
+  const [migrationPreview, setMigrationPreview] = useState<MigrationPreview | null>(null);
+  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
+  const [migrationPreviewing, setMigrationPreviewing] = useState(false);
+  const [migrationImporting, setMigrationImporting] = useState(false);
   const [tags, setTags] = useState<TagItem[]>([]);
   const [tagFrom, setTagFrom] = useState("");
   const [tagTo, setTagTo] = useState("");
@@ -456,6 +476,59 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       notify(`导入失败：${(err as Error).message}`, "error");
     } finally {
       input.value = "";
+    }
+  };
+
+  const migrationPayload = () => ({
+    baseUrl: migrationBaseUrl.trim(),
+    accessToken: migrationToken.trim(),
+    includeArchived: migrationIncludeArchived,
+  });
+
+  const handlePreviewMigration = async () => {
+    setMigrationPreviewing(true);
+    setMigrationResult(null);
+    try {
+      const data = await api<{ preview: MigrationPreview }>("/api/v1/migration/memos/preview", {
+        method: "POST",
+        body: JSON.stringify(migrationPayload()),
+      });
+      setMigrationPreview(data.preview);
+      notify(`可迁移 ${data.preview.memoCount} 条备忘录`, "success");
+    } catch (err) {
+      setMigrationPreview(null);
+      notify(`预检失败：${(err as Error).message}`, "error");
+    } finally {
+      setMigrationPreviewing(false);
+    }
+  };
+
+  const handleRunMigration = async () => {
+    const count = migrationPreview?.memoCount;
+    const ok = await confirm({
+      title: "开始迁移？",
+      message: count === undefined
+        ? "会从原版 Memos 拉取数据并导入当前账号，重复记录会自动跳过。"
+        : `将尝试导入 ${count} 条备忘录，重复记录会自动跳过。`,
+      confirmText: "开始迁移",
+    });
+    if (!ok) return;
+    setMigrationImporting(true);
+    try {
+      const data = await api<{ result: MigrationResult }>("/api/v1/migration/memos/import", {
+        method: "POST",
+        body: JSON.stringify(migrationPayload()),
+      });
+      setMigrationResult(data.result);
+      setMigrationPreview(data.result);
+      await fetchTags();
+      await fetchAuditLogs();
+      await fetchOverview();
+      notify(`已导入 ${data.result.imported} 条，跳过 ${data.result.skipped} 条`, "success");
+    } catch (err) {
+      notify(`迁移失败：${(err as Error).message}`, "error");
+    } finally {
+      setMigrationImporting(false);
     }
   };
 
@@ -910,6 +983,87 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               <button class="btn btn-danger btn-sm" onClick={handleRestoreBackup}>恢复此备份</button>
             </div>
           )}
+        </div>
+
+        <div class="settings-section">
+          <h2>从原版 Memos 迁移</h2>
+          <div class="migration-form">
+            <div class="form-group">
+              <label class="form-label">原版 Memos 地址</label>
+              <input
+                class="form-input"
+                type="url"
+                placeholder="https://memos.example.com"
+                value={migrationBaseUrl}
+                onInput={(e) => {
+                  setMigrationBaseUrl((e.target as HTMLInputElement).value);
+                  setMigrationPreview(null);
+                  setMigrationResult(null);
+                }}
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Access Token</label>
+              <input
+                class="form-input"
+                type="password"
+                placeholder="只用于本次迁移，不会保存"
+                value={migrationToken}
+                onInput={(e) => {
+                  setMigrationToken((e.target as HTMLInputElement).value);
+                  setMigrationPreview(null);
+                  setMigrationResult(null);
+                }}
+                autoComplete="off"
+              />
+            </div>
+            <label class="migration-option">
+              <input
+                type="checkbox"
+                checked={migrationIncludeArchived}
+                onChange={(e) => {
+                  setMigrationIncludeArchived((e.target as HTMLInputElement).checked);
+                  setMigrationPreview(null);
+                  setMigrationResult(null);
+                }}
+              />
+              <span>包含归档内容</span>
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button
+              class="btn btn-secondary"
+              onClick={handlePreviewMigration}
+              disabled={migrationPreviewing || migrationImporting || !migrationBaseUrl.trim() || !migrationToken.trim()}
+            >
+              {migrationPreviewing ? "预检中..." : "预检"}
+            </button>
+            <button
+              class="btn btn-primary"
+              onClick={handleRunMigration}
+              disabled={migrationPreviewing || migrationImporting || !migrationBaseUrl.trim() || !migrationToken.trim()}
+            >
+              {migrationImporting ? "迁移中..." : "开始迁移"}
+            </button>
+          </div>
+          {(migrationPreview || migrationResult) && (
+            <div class="migration-summary">
+              <span>备忘录 {migrationPreview?.memoCount ?? migrationResult?.memoCount}</span>
+              <span>归档 {migrationPreview?.archivedCount ?? migrationResult?.archivedCount}</span>
+              <span>附件元信息 {migrationPreview?.attachmentCount ?? migrationResult?.attachmentCount}</span>
+              <span>引用元信息 {migrationPreview?.relationCount ?? migrationResult?.relationCount}</span>
+              {(migrationPreview?.truncated || migrationResult?.truncated) && <span>已达到单次上限</span>}
+              {migrationResult && (
+                <>
+                  <span>已导入 {migrationResult.imported}</span>
+                  <span>已跳过 {migrationResult.skipped}</span>
+                </>
+              )}
+            </div>
+          )}
+          <div class="muted-line">
+            附件文件不会在第一版中下载，只会保留原始附件和引用元信息。
+          </div>
         </div>
 
       <div class="settings-section">

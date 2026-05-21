@@ -13,6 +13,7 @@ import { createBackupResponse, downloadBackup, listBackups, previewBackup, resto
 import { listTags, renameTag } from "./services/tags";
 import { getTimeline } from "./services/timeline";
 import { listAuditLogs } from "./services/audit";
+import { importOriginalMemos, previewOriginalMemosMigration } from "./services/migration";
 import { generateRss } from "./rss";
 import { parseFilter } from "./filter";
 import { appHtml } from "./ui";
@@ -73,6 +74,8 @@ export async function route(request: Request, env: Env): Promise<Response> {
     if (url.pathname === "/api/v1/memos/batch" && method === "POST") return bulkUpdateMemos(request, env, viewer);
     if (url.pathname === "/api/v1/export/memos" && method === "GET") return exportData(env, viewer);
     if (url.pathname === "/api/v1/import/memos" && method === "POST") return importData(request, env, viewer);
+    if (url.pathname === "/api/v1/migration/memos/preview" && method === "POST") return previewOriginalMemosMigration(request, env, viewer);
+    if (url.pathname === "/api/v1/migration/memos/import" && method === "POST") return importOriginalMemos(request, env, viewer);
     if (url.pathname === "/api/v1/backups" && method === "POST") {
       if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
       return createBackupResponse(env, viewer);
