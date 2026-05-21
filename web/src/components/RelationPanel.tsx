@@ -57,9 +57,11 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
             value={input}
             onInput={(e) => setInput((e.target as HTMLTextAreaElement).value)}
           />
-          <button class="btn btn-primary btn-sm" onClick={saveRelations} disabled={saving}>
-            {saving ? "保存中..." : "保存引用"}
-          </button>
+          <div class="relation-editor-actions">
+            <button class="btn relation-save-button" onClick={saveRelations} disabled={saving || !input.trim()}>
+              {saving ? "保存中..." : "保存引用"}
+            </button>
+          </div>
         </div>
       )}
       <RelationList title="引用到" relations={outgoing} />

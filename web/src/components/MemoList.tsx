@@ -276,7 +276,7 @@ export function MemoList({
       {visibleMemos.map((memo) => (
         <div
           key={memo.uid}
-          class={`memo-list-item${selectedUids.has(memo.uid) ? " selected" : ""}`}
+          class={`memo-list-item${currentUser && memo.creator.id === currentUser.id ? " selectable" : ""}${selectedUids.has(memo.uid) ? " selected" : ""}`}
           onTouchStart={() => startLongPressSelect(memo)}
           onTouchEnd={cancelLongPressSelect}
           onTouchMove={cancelLongPressSelect}
