@@ -2,6 +2,11 @@ name = "memos-worker"
 main = "src/index.ts"
 compatibility_date = "2026-05-20"
 
+[assets]
+directory = "./dist/static"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "memos-db"

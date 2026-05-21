@@ -1,0 +1,82 @@
+import { useState, useEffect, useCallback } from "preact/hooks";
+import Router, { route } from "preact-router";
+import { api, setToken, clearToken } from "./api";
+import { Header } from "./components/Header";
+import { Home } from "./pages/Home";
+import { AuthPage } from "./pages/AuthPage";
+import { MemoDetailPage } from "./pages/MemoDetailPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { ExplorePage } from "./pages/ExplorePage";
+import { SharePage } from "./pages/SharePage";
+
+export interface CurrentUser {
+  id: number;
+  username: string;
+  role: string;
+  nickname: string;
+  email: string;
+  avatarUrl: string;
+  description: string;
+}
+
+export function App() {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [authLoaded, setAuthLoaded] = useState(false);
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const data = await api<{ user: CurrentUser }>("/api/v1/auth/user");
+      setCurrentUser(data.user);
+    } catch {
+      setCurrentUser(null);
+    } finally {
+      setAuthLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  const handleLogin = useCallback((user: CurrentUser, accessToken: string) => {
+    setToken(accessToken);
+    setCurrentUser(user);
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await api("/api/v1/auth/signout", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    clearToken();
+    setCurrentUser(null);
+    route("/");
+  }, []);
+
+  if (!authLoaded) {
+    return (
+      <div class="loading-screen">
+        <span class="loading-spinner" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Header currentUser={currentUser} onLogout={handleLogout} />
+      <Router>
+        <Home path="/" currentUser={currentUser} />
+        <AuthPage
+          path="/auth"
+          currentUser={currentUser}
+          onLogin={handleLogin}
+        />
+        <MemoDetailPage path="/memos/:uid" currentUser={currentUser} />
+        <ExplorePage path="/explore" currentUser={currentUser} />
+        <SettingsPage path="/settings" currentUser={currentUser} />
+        <SharePage path="/shares/:uid" />
+      </Router>
+    </>
+  );
+}
