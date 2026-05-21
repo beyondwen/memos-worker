@@ -93,6 +93,21 @@ interface AuditLog {
   target: string;
 }
 
+type SettingsTab = "account" | "integrations" | "data" | "maintenance" | "audit";
+
+const SETTINGS_TABS: Array<{
+  id: SettingsTab;
+  label: string;
+  description: string;
+  adminOnly?: boolean;
+}> = [
+  { id: "account", label: "账号", description: "资料、密码和访问令牌" },
+  { id: "integrations", label: "集成", description: "Webhook 和投递记录" },
+  { id: "data", label: "数据", description: "导入导出、备份和标签", adminOnly: true },
+  { id: "maintenance", label: "维护", description: "附件清理" },
+  { id: "audit", label: "审计", description: "操作记录", adminOnly: true },
+];
+
 export function SettingsPage({ currentUser }: SettingsPageProps) {
   const { notify, confirm } = useFeedback();
   const [nickname, setNickname] = useState("");
@@ -132,12 +147,19 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [instanceName, setInstanceName] = useState("Memos Worker");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("account");
 
   useEffect(() => {
     if (!currentUser) {
       route("/auth", true);
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser?.role !== "ADMIN" && (activeSettingsTab === "data" || activeSettingsTab === "audit")) {
+      setActiveSettingsTab("account");
+    }
+  }, [activeSettingsTab, currentUser?.role]);
 
   useEffect(() => {
     if (currentUser) {
@@ -567,6 +589,24 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
         </div>
       </div>
 
+      <div class="settings-tabs" role="tablist" aria-label="设置分类">
+        {SETTINGS_TABS.filter((tab) => !tab.adminOnly || currentUser.role === "ADMIN").map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeSettingsTab === tab.id}
+            class={`settings-tab${activeSettingsTab === tab.id ? " active" : ""}`}
+            onClick={() => setActiveSettingsTab(tab.id)}
+          >
+            <span>{tab.label}</span>
+            <small>{tab.description}</small>
+          </button>
+        ))}
+      </div>
+
+      {activeSettingsTab === "account" && (
+        <>
       <div class="settings-section">
         <h2>实例概览</h2>
         <div class="overview-grid">
@@ -683,16 +723,17 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       <div class="settings-section">
         <h2>个人访问令牌</h2>
 
-        <div class="pat-list">
+        <div class="settings-record-list">
           {pats.map((pat) => (
-            <div key={pat.id} class="pat-item">
-              <span class="pat-name">{pat.name}</span>
-              <span class="pat-prefix">{pat.prefix}...</span>
-              <span class="pat-date">
-                {pat.expiresTs ? `过期时间 ${formatTs(pat.expiresTs)}` : "无过期时间"}
-              </span>
+            <div key={pat.id} class="settings-record-row">
+              <div class="settings-record-main">
+                <span class="settings-record-title">{pat.name}</span>
+                <span class="settings-record-meta">
+                  {pat.prefix}... · {pat.expiresTs ? `过期时间 ${formatTs(pat.expiresTs)}` : "无过期时间"}
+                </span>
+              </div>
               <button
-                class="btn btn-ghost btn-sm"
+                class="btn btn-danger-soft btn-sm"
                 onClick={() => handleDeletePat(pat.id)}
               >
                 删除
@@ -712,6 +753,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               class="form-input"
               type="text"
               placeholder="令牌名称"
+              aria-label="令牌名称"
               value={newPatName}
               onInput={(e) => setNewPatName((e.target as HTMLInputElement).value)}
             />
@@ -730,28 +772,34 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           </div>
         )}
       </div>
+        </>
+      )}
 
+      {activeSettingsTab === "integrations" && (
       <div class="settings-section">
         <h2>Webhook 集成</h2>
-        <div class="pat-list">
+        <div class="settings-record-list">
           {webhooks.map((webhook) => (
-            <div key={webhook.id} class="pat-item">
-              <span class="pat-name">{webhook.name}</span>
-              <span class="pat-prefix">{webhook.rowStatus === "NORMAL" ? "启用" : "停用"}</span>
-              <span class="pat-date">{webhook.url}</span>
-              <button class="btn btn-ghost btn-sm" onClick={() => handleToggleWebhook(webhook)}>
-                {webhook.rowStatus === "NORMAL" ? "停用" : "启用"}
-              </button>
-              <button
-                class="btn btn-ghost btn-sm"
-                onClick={() => handleTestWebhook(webhook)}
-                disabled={testingWebhookId === webhook.id}
-              >
-                {testingWebhookId === webhook.id ? "测试中..." : "测试"}
-              </button>
-              <button class="btn btn-ghost btn-sm" onClick={() => handleDeleteWebhook(webhook)}>
-                删除
-              </button>
+            <div key={webhook.id} class="settings-record-row">
+              <div class="settings-record-main">
+                <span class="settings-record-title">{webhook.name}</span>
+                <span class="settings-record-meta">{webhook.rowStatus === "NORMAL" ? "启用" : "停用"} · {webhook.url}</span>
+              </div>
+              <div class="settings-record-actions">
+                <button class="btn btn-ghost btn-sm" onClick={() => handleToggleWebhook(webhook)}>
+                  {webhook.rowStatus === "NORMAL" ? "停用" : "启用"}
+                </button>
+                <button
+                  class="btn btn-ghost btn-sm"
+                  onClick={() => handleTestWebhook(webhook)}
+                  disabled={testingWebhookId === webhook.id}
+                >
+                  {testingWebhookId === webhook.id ? "测试中..." : "测试"}
+                </button>
+                <button class="btn btn-danger-soft btn-sm" onClick={() => handleDeleteWebhook(webhook)}>
+                  删除
+                </button>
+              </div>
             </div>
           ))}
           {webhooks.length === 0 && <div class="muted-line">暂无 Webhook。</div>}
@@ -762,6 +810,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               class="form-input"
               type="text"
               placeholder="名称"
+              aria-label="Webhook 名称"
               value={webhookName}
               onInput={(e) => setWebhookName((e.target as HTMLInputElement).value)}
             />
@@ -771,6 +820,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               class="form-input"
               type="url"
               placeholder="https://example.com/webhook"
+              aria-label="Webhook 地址"
               value={webhookUrl}
               onInput={(e) => setWebhookUrl((e.target as HTMLInputElement).value)}
             />
@@ -813,8 +863,10 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           </div>
         </div>
       </div>
+      )}
 
-      {currentUser.role === "ADMIN" && (
+      {activeSettingsTab === "data" && currentUser.role === "ADMIN" && (
+        <>
         <div class="settings-section">
           <h2>数据维护</h2>
           <div class="settings-actions">
@@ -830,18 +882,21 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
             </label>
           </div>
           <div class="settings-subtitle">备份列表</div>
-          <div class="pat-list">
+          <div class="settings-record-list">
             {backups.map((backup) => (
-              <div key={backup.key} class="pat-item">
-                <span class="pat-name">{backup.key.split("/").pop()}</span>
-                <span class="pat-prefix">{formatBytes(backup.size)}</span>
-                <span class="pat-date">{new Date(backup.uploaded).toLocaleString("zh-CN")}</span>
-                <a class="btn btn-ghost btn-sm" href={`/api/v1/backups/download?key=${encodeURIComponent(backup.key)}`} target="_blank" rel="noopener noreferrer">
-                  下载
-                </a>
-                <button class="btn btn-ghost btn-sm" onClick={() => handlePreviewBackup(backup)}>
-                  预览
-                </button>
+              <div key={backup.key} class="settings-record-row">
+                <div class="settings-record-main">
+                  <span class="settings-record-title">{backup.key.split("/").pop()}</span>
+                  <span class="settings-record-meta">{formatBytes(backup.size)} · {new Date(backup.uploaded).toLocaleString("zh-CN")}</span>
+                </div>
+                <div class="settings-record-actions">
+                  <a class="btn btn-ghost btn-sm" href={`/api/v1/backups/download?key=${encodeURIComponent(backup.key)}`} target="_blank" rel="noopener noreferrer">
+                    下载
+                  </a>
+                  <button class="btn btn-ghost btn-sm" onClick={() => handlePreviewBackup(backup)}>
+                    预览
+                  </button>
+                </div>
               </div>
             ))}
             {backups.length === 0 && <div class="muted-line">暂无备份。</div>}
@@ -855,7 +910,70 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               <button class="btn btn-danger btn-sm" onClick={handleRestoreBackup}>恢复此备份</button>
             </div>
           )}
-          <div class="settings-subtitle">操作审计</div>
+        </div>
+
+      <div class="settings-section">
+        <h2>标签管理</h2>
+        <div class="tag-list settings-tag-list">
+          {tags.map((tag) => (
+            <button key={tag.name} class="tag-item" onClick={() => setTagFrom(tag.name)}>
+              #{tag.name} <span>{tag.count}</span>
+            </button>
+          ))}
+          {tags.length === 0 && <div class="muted-line">暂无标签。</div>}
+        </div>
+        <form class="inline-form" onSubmit={handleRenameTag}>
+          <input class="form-input" placeholder="原标签" aria-label="原标签" value={tagFrom} onInput={(e) => setTagFrom((e.target as HTMLInputElement).value)} />
+          <input class="form-input" placeholder="新标签" aria-label="新标签" value={tagTo} onInput={(e) => setTagTo((e.target as HTMLInputElement).value)} />
+          <button class="btn btn-primary btn-sm" disabled={tagSaving || !tagFrom || !tagTo}>
+            {tagSaving ? "处理中..." : "重命名/合并"}
+          </button>
+        </form>
+      </div>
+        </>
+      )}
+
+      {activeSettingsTab === "maintenance" && (
+      <div class="settings-section">
+        <h2>附件清理</h2>
+        <div class="settings-actions">
+          <span class="muted-line">{attachmentSummary.count} 个未绑定附件，共 {attachmentSummary.sizeLabel}</span>
+          <button class="btn btn-danger btn-sm" onClick={() => handleBatchDeleteAttachments()} disabled={unattachedAttachments.length === 0}>
+            全部清理
+          </button>
+          <button class="btn btn-secondary btn-sm" onClick={() => handleBatchDeleteAttachments(30)} disabled={unattachedAttachments.length === 0}>
+            清理 30 天前
+          </button>
+        </div>
+        <div class="settings-record-list">
+          {unattachedAttachments.map((attachment) => (
+            <div key={attachment.uid} class="settings-record-row attachment-cleanup-item">
+              <div class="settings-record-main">
+                <span class="settings-record-title">{attachment.filename}</span>
+                <span class="settings-record-meta">{formatBytes(attachment.size)}</span>
+              </div>
+              <div class="settings-record-actions">
+                <a class="btn btn-ghost btn-sm" href={attachment.url} target="_blank" rel="noopener noreferrer">
+                  预览
+                </a>
+              <button
+                class="btn btn-danger-soft btn-sm"
+                onClick={() => handleDeleteAttachment(attachment)}
+                disabled={deletingAttachmentUid === attachment.uid}
+              >
+                {deletingAttachmentUid === attachment.uid ? "删除中..." : "删除"}
+              </button>
+              </div>
+            </div>
+          ))}
+          {unattachedAttachments.length === 0 && <div class="muted-line">暂无未绑定附件。</div>}
+        </div>
+      </div>
+      )}
+
+      {activeSettingsTab === "audit" && currentUser.role === "ADMIN" && (
+        <div class="settings-section">
+          <h2>操作审计</h2>
           <div class="webhook-delivery-list">
             {auditLogs.map((log) => (
               <div key={log.id} class="webhook-delivery-item">
@@ -871,57 +989,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           </div>
         </div>
       )}
-
-      <div class="settings-section">
-        <h2>标签管理</h2>
-        <div class="tag-list settings-tag-list">
-          {tags.map((tag) => (
-            <button key={tag.name} class="tag-item" onClick={() => setTagFrom(tag.name)}>
-              #{tag.name} <span>{tag.count}</span>
-            </button>
-          ))}
-          {tags.length === 0 && <div class="muted-line">暂无标签。</div>}
-        </div>
-        <form class="inline-form" onSubmit={handleRenameTag}>
-          <input class="form-input" placeholder="原标签" value={tagFrom} onInput={(e) => setTagFrom((e.target as HTMLInputElement).value)} />
-          <input class="form-input" placeholder="新标签" value={tagTo} onInput={(e) => setTagTo((e.target as HTMLInputElement).value)} />
-          <button class="btn btn-primary btn-sm" disabled={tagSaving || !tagFrom || !tagTo}>
-            {tagSaving ? "处理中..." : "重命名/合并"}
-          </button>
-        </form>
-      </div>
-
-      <div class="settings-section">
-        <h2>附件清理</h2>
-        <div class="settings-actions">
-          <span class="muted-line">{attachmentSummary.count} 个未绑定附件，共 {attachmentSummary.sizeLabel}</span>
-          <button class="btn btn-danger btn-sm" onClick={() => handleBatchDeleteAttachments()} disabled={unattachedAttachments.length === 0}>
-            全部清理
-          </button>
-          <button class="btn btn-secondary btn-sm" onClick={() => handleBatchDeleteAttachments(30)} disabled={unattachedAttachments.length === 0}>
-            清理 30 天前
-          </button>
-        </div>
-        <div class="pat-list">
-          {unattachedAttachments.map((attachment) => (
-            <div key={attachment.uid} class="pat-item attachment-cleanup-item">
-              <span class="pat-name">{attachment.filename}</span>
-              <span class="pat-prefix">{formatBytes(attachment.size)}</span>
-              <a class="pat-date" href={attachment.url} target="_blank" rel="noopener noreferrer">
-                预览
-              </a>
-              <button
-                class="btn btn-ghost btn-sm"
-                onClick={() => handleDeleteAttachment(attachment)}
-                disabled={deletingAttachmentUid === attachment.uid}
-              >
-                {deletingAttachmentUid === attachment.uid ? "删除中..." : "删除"}
-              </button>
-            </div>
-          ))}
-          {unattachedAttachments.length === 0 && <div class="muted-line">暂无未绑定附件。</div>}
-        </div>
-      </div>
     </div>
   );
 }

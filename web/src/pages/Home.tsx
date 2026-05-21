@@ -7,6 +7,7 @@ import type { CurrentUser } from "../App";
 import type { Memo } from "../components/MemoCard";
 import type { MemoPropertyFilter, MemoState, MemoVisibility } from "../memoQuery";
 import { buildAdvancedMemoFilter, type PinnedFilter } from "../advancedSearch";
+import { parseHomeDateFilterParams, stripHomeFilterParams } from "../homeFilters";
 
 interface HomeProps {
   path: string;
@@ -61,12 +62,10 @@ export function Home({ currentUser }: HomeProps) {
   }, [fetchTags, refreshKey]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const after = params.get("createdAfter") ?? "";
-    const before = params.get("createdBefore") ?? "";
-    if (after || before) {
-      setCreatedAfter(after);
-      setCreatedBefore(before);
+    const filters = parseHomeDateFilterParams(window.location.search);
+    if (filters.createdAfter || filters.createdBefore) {
+      setCreatedAfter(filters.createdAfter);
+      setCreatedBefore(filters.createdBefore);
       setShowAdvanced(true);
     }
   }, []);
@@ -100,6 +99,10 @@ export function Home({ currentUser }: HomeProps) {
     setPinnedFilter("");
     setCreatedAfter("");
     setCreatedBefore("");
+    const cleanPath = stripHomeFilterParams(`${window.location.pathname}${window.location.search}`);
+    if (cleanPath !== `${window.location.pathname}${window.location.search}`) {
+      route(cleanPath, true);
+    }
   };
 
   const advancedFilter = buildAdvancedMemoFilter({ creator, pinned: pinnedFilter, createdAfter, createdBefore });
@@ -149,6 +152,7 @@ export function Home({ currentUser }: HomeProps) {
             <input
               type="search"
               placeholder="搜索内容"
+              aria-label="搜索内容"
               value={search}
               onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
               onKeyDown={(e) => { if (e.key === "Enter") commitSearch(search); }}
@@ -187,9 +191,11 @@ export function Home({ currentUser }: HomeProps) {
         </div>
 
         {recentSearches.length > 0 && (
-          <div class="recent-searches">
+          <div class="recent-searches" aria-label="最近搜索">
+            <span class="recent-searches-label">最近搜索</span>
             {recentSearches.map((term) => (
-              <button key={term} class="tag-item" onClick={() => setSearch(term)}>
+              <button key={term} class="recent-search-chip" onClick={() => setSearch(term)}>
+                <span aria-hidden="true">↺</span>
                 {term}
               </button>
             ))}
@@ -202,6 +208,7 @@ export function Home({ currentUser }: HomeProps) {
               class="form-input"
               type="text"
               placeholder="创建者用户名"
+              aria-label="创建者用户名"
               value={creator}
               onInput={(e) => setCreator((e.target as HTMLInputElement).value)}
             />
@@ -209,25 +216,28 @@ export function Home({ currentUser }: HomeProps) {
               class="filter-select"
               value={pinnedFilter}
               onChange={(e) => setPinnedFilter((e.target as HTMLSelectElement).value as PinnedFilter)}
+              aria-label="置顶状态筛选"
             >
               <option value="">全部置顶状态</option>
               <option value="PINNED">仅置顶</option>
               <option value="UNPINNED">未置顶</option>
             </select>
-            <label>
+            <label class="advanced-field">
               <span>开始日期</span>
               <input
                 class="form-input"
                 type="date"
+                aria-label="开始日期"
                 value={createdAfter}
                 onInput={(e) => setCreatedAfter((e.target as HTMLInputElement).value)}
               />
             </label>
-            <label>
+            <label class="advanced-field">
               <span>结束日期</span>
               <input
                 class="form-input"
                 type="date"
+                aria-label="结束日期"
                 value={createdBefore}
                 onInput={(e) => setCreatedBefore((e.target as HTMLInputElement).value)}
               />

@@ -82,19 +82,23 @@ export function ShareManager({ memoUid }: ShareManagerProps) {
         </button>
       </div>
 
-      <div class="pat-list section-list">
+      <div class="settings-record-list section-list">
         {shares.map((share) => {
           const url = buildShareUrl(window.location.origin, share.uid);
           return (
-            <div key={share.id} class="pat-item">
-              <span class="pat-name">{share.uid}</span>
-              <span class="pat-date">{share.expiresTs ? `过期 ${formatTs(share.expiresTs)}` : "永久有效"}</span>
-              <button class="btn btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(url)}>
-                复制
-              </button>
-              <button class="btn btn-ghost btn-sm" onClick={() => deleteShare(share)}>
-                删除
-              </button>
+            <div key={share.id} class="settings-record-row">
+              <div class="settings-record-main">
+                <span class="settings-record-title">{share.uid}</span>
+                <span class="settings-record-meta">{share.expiresTs ? `过期 ${formatTs(share.expiresTs)}` : "永久有效"}</span>
+              </div>
+              <div class="settings-record-actions">
+                <button class="btn btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(url)}>
+                  复制
+                </button>
+                <button class="btn btn-danger-soft btn-sm" onClick={() => deleteShare(share)}>
+                  删除
+                </button>
+              </div>
             </div>
           );
         })}

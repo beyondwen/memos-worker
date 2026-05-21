@@ -215,7 +215,7 @@ export function MemoList({
   }, []);
 
   return (
-    <div class="memo-list">
+    <div class={`memo-list${selectedUids.size > 0 ? " has-bulk-actions" : ""}`}>
       {selectableUids.length > 0 && (
         <div class={`bulk-bar${selectedUids.size > 0 ? " active" : ""}`}>
           <label class="bulk-select-all">
@@ -225,6 +225,7 @@ export function MemoList({
               onChange={toggleAll}
               aria-label="选择当前页可操作备忘录"
             />
+            <span class="select-indicator" aria-hidden="true" />
             <span>{selectedUids.size > 0 ? `已选 ${selectedUids.size} 条` : "批量选择"}</span>
           </label>
 
@@ -289,6 +290,7 @@ export function MemoList({
                 onChange={(e) => toggleSelected(memo.uid, (e.target as HTMLInputElement).checked)}
                 aria-label="选择备忘录"
               />
+              <span class="select-indicator" aria-hidden="true" />
             </label>
           )}
           <MemoCard

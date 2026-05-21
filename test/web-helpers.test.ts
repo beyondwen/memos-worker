@@ -20,6 +20,7 @@ import { highlightRenderedHtml } from "../web/src/searchHighlight";
 import { applyMemoTemplate, MEMO_TEMPLATES } from "../web/src/memoTemplates";
 import { buildSearchSnippet, scoreSearchMatch } from "../web/src/searchResultView";
 import { attachmentCleanupSummary } from "../web/src/attachmentCleanupView";
+import { buildHomeDateFilterPath, parseHomeDateFilterParams, stripHomeFilterParams } from "../web/src/homeFilters";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -129,6 +130,21 @@ describe("advanced memo filters", () => {
 
   it("omits empty advanced filters", () => {
     expect(buildAdvancedMemoFilter({ creator: "  ", pinned: "" })).toBe("");
+  });
+});
+
+describe("home URL filters", () => {
+  it("parses timeline date filters from the URL query", () => {
+    expect(parseHomeDateFilterParams("?createdAfter=2026-05-21&createdBefore=2026-05-21")).toEqual({
+      createdAfter: "2026-05-21",
+      createdBefore: "2026-05-21",
+    });
+  });
+
+  it("builds and clears date-filtered home paths without stale query params", () => {
+    expect(buildHomeDateFilterPath("2026-05-21")).toBe("/?createdAfter=2026-05-21&createdBefore=2026-05-21");
+    expect(stripHomeFilterParams("/?createdAfter=2026-05-21&createdBefore=2026-05-21&foo=bar")).toBe("/?foo=bar");
+    expect(stripHomeFilterParams("/?createdAfter=2026-05-21&createdBefore=2026-05-21")).toBe("/");
   });
 });
 

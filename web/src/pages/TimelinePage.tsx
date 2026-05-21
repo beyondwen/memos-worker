@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
 import type { CurrentUser } from "../App";
+import { buildHomeDateFilterPath } from "../homeFilters";
 
 interface TimelinePageProps {
   path: string;
@@ -46,7 +47,7 @@ export function TimelinePage({ currentUser }: TimelinePageProps) {
             <button
               key={item.day}
               class="timeline-row"
-              onClick={() => route(`/?createdAfter=${item.day}&createdBefore=${item.day}`)}
+              onClick={() => route(buildHomeDateFilterPath(item.day))}
             >
               <span>{item.day}</span>
               <strong>{item.count}</strong>
