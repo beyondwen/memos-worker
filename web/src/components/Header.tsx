@@ -10,6 +10,8 @@ interface HeaderProps {
 export function Header({ currentUser, onLogout }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const p = typeof window !== "undefined" ? window.location.pathname : "";
+  const displayName = currentUser?.nickname || currentUser?.username || "";
+  const avatarInitial = displayName.trim().charAt(0).toUpperCase() || "M";
 
   const nav = (href: string, label: string) => (
     <a
@@ -37,8 +39,11 @@ export function Header({ currentUser, onLogout }: HeaderProps) {
 
       {currentUser ? (
         <div class="header-user">
+          <span class="header-avatar" aria-hidden="true">
+            {avatarInitial}
+          </span>
           <span class="header-user-name">
-            {currentUser.nickname || currentUser.username}
+            {displayName}
           </span>
           <button class="btn btn-ghost btn-sm" onClick={onLogout}>
             退出
