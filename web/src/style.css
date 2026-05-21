@@ -477,6 +477,11 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .memo-card:first-child { padding-top: 18px; }
 .memo-card:last-child { border-bottom: 1px solid var(--line); }
 .memo-card:hover { background: rgba(255,255,255,0.98); border-color: #d6ded6; box-shadow: var(--shadow); transform: translateY(-2px); }
+.memo-card.clickable { cursor: pointer; }
+.memo-card.clickable:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow), 0 0 0 3px rgba(84,117,92,0.14);
+}
 .memo-card-flat {
   background: rgba(255,255,255,0.9); border: 1px solid rgba(229,226,220,0.86);
   border-radius: var(--radius-lg); padding: 20px;

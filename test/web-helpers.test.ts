@@ -21,6 +21,7 @@ import { applyMemoTemplate, MEMO_TEMPLATES } from "../web/src/memoTemplates";
 import { buildSearchSnippet, scoreSearchMatch } from "../web/src/searchResultView";
 import { attachmentCleanupSummary } from "../web/src/attachmentCleanupView";
 import { buildHomeDateFilterPath, parseHomeDateFilterParams, stripHomeFilterParams } from "../web/src/homeFilters";
+import { shouldOpenMemoDetailFromCardClick } from "../web/src/cardClick";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -275,6 +276,21 @@ describe("bulk memo helpers", () => {
   it("labels destructive bulk actions clearly", () => {
     expect(bulkMemoActionLabel("ARCHIVE")).toBe("删除");
     expect(bulkMemoActionLabel("DELETE")).toBe("彻底删除");
+  });
+});
+
+describe("memo card click behavior", () => {
+  const target = (matches: boolean) => ({
+    closest: () => matches ? ({}) : null,
+  }) as unknown as Element;
+
+  it("opens detail when clicking non-interactive card content", () => {
+    expect(shouldOpenMemoDetailFromCardClick(target(false), false)).toBe(true);
+  });
+
+  it("keeps controls inside a memo card interactive", () => {
+    expect(shouldOpenMemoDetailFromCardClick(target(true), false)).toBe(false);
+    expect(shouldOpenMemoDetailFromCardClick(target(false), true)).toBe(false);
   });
 });
 

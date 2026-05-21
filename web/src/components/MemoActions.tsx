@@ -4,7 +4,6 @@ interface MemoActionsProps {
   editing: boolean;
   pinned: boolean;
   commentCount?: number;
-  onOpen: () => void;
   onEdit: () => void;
   onPin: () => void;
   onArchive: () => void;
@@ -21,7 +20,6 @@ export function MemoActions({
   editing,
   pinned,
   commentCount = 0,
-  onOpen,
   onEdit,
   onPin,
   onArchive,
@@ -33,9 +31,6 @@ export function MemoActions({
 }: MemoActionsProps) {
   return (
     <div class="memo-actions">
-      <button class="memo-action-icon" title="查看详情" aria-label="查看详情" onClick={onOpen}>
-        <span aria-hidden="true">↗</span>
-      </button>
       {isOwner && !editing && (
         <button class="memo-action-icon" title="编辑" aria-label="编辑" onClick={onEdit}>
           <span aria-hidden="true">✎</span>

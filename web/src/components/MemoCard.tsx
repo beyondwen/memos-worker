@@ -6,6 +6,7 @@ import { useFeedback } from "./Feedback";
 import { AttachmentList } from "./AttachmentList";
 import { MemoActions } from "./MemoActions";
 import { buildShareUrl } from "../integrationHelpers";
+import { shouldOpenMemoDetailFromCardClick } from "../cardClick";
 import type { CurrentUser } from "../App";
 
 export interface Memo {
@@ -271,11 +272,31 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
     setShowReactionPicker(next);
   };
 
+  const openDetail = () => route(`/memos/${memo.uid}`);
+
+  const handleCardClick = (event: MouseEvent) => {
+    if (shouldOpenMemoDetailFromCardClick(event.target, editing)) openDetail();
+  };
+
+  const handleCardKeyDown = (event: KeyboardEvent) => {
+    if (editing || event.defaultPrevented) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (!shouldOpenMemoDetailFromCardClick(event.target, false)) return;
+    event.preventDefault();
+    openDetail();
+  };
+
   const visLabel = { PRIVATE: "私有", PROTECTED: "登录可见", PUBLIC: "公开" };
   const visClass = { PRIVATE: "vis-PRIVATE", PROTECTED: "vis-PROTECTED", PUBLIC: "vis-PUBLIC" };
 
   return (
-    <div class="memo-card">
+    <div
+      class={`memo-card${editing ? "" : " clickable"}`}
+      role={editing ? undefined : "link"}
+      tabIndex={editing ? undefined : 0}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+    >
       <div class="memo-header">
         <span class="memo-creator">{memo.creator.nickname || memo.creator.username}</span>
         <span class="memo-dot">·</span>
@@ -408,7 +429,6 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
         editing={editing}
         pinned={memo.pinned}
         commentCount={commentsLoaded ? comments.length : 0}
-        onOpen={() => route(`/memos/${memo.uid}`)}
         onEdit={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}
         onPin={handleTogglePinned}
         onArchive={handleArchive}
