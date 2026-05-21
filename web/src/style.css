@@ -358,7 +358,40 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   display: flex; flex-direction: column; gap: 14px;
 }
 .memo-list-item {
-  display: block;
+  position: relative; display: block;
+}
+.memo-list-item.selected .memo-card {
+  border-color: #9bb9a7;
+  box-shadow: 0 0 0 2px rgba(154,168,148,0.18), var(--shadow-sm);
+}
+.memo-select {
+  position: absolute; top: 14px; left: -32px;
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.memo-select input,
+.bulk-select-all input {
+  width: 16px; height: 16px; accent-color: var(--accent);
+}
+.bulk-bar {
+  position: sticky; top: calc(var(--header-h) + 10px); z-index: 5;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 46px; padding: 8px 12px;
+  background: rgba(255,255,255,0.9); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(10px);
+}
+.bulk-bar.active { border-color: #c7d5c2; box-shadow: var(--shadow); }
+.bulk-select-all {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--muted); font-size: 0.8125rem; font-weight: 600;
+}
+.bulk-actions {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
+}
+.filter-select.compact {
+  height: 30px; min-width: 104px; padding: 4px 28px 4px 10px;
+  font-size: 0.8125rem;
 }
 
 .memo-header {
@@ -494,6 +527,11 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 }
 .memo-action-icon:hover {
   border-color: #d8e2dc;
+}
+.memo-action-icon.danger:hover {
+  color: var(--danger);
+  border-color: rgba(185,28,28,0.2);
+  background: #fef2f2;
 }
 
 /* ── Load More ───────────────────────────── */
@@ -731,6 +769,10 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   .settings-layout { padding: 16px; }
   .auth-card { padding: 28px 24px; }
   .memo-card { padding: 16px; }
+  .memo-list-item { padding-left: 30px; }
+  .memo-select { left: 0; top: 12px; }
+  .bulk-bar { align-items: stretch; flex-direction: column; position: static; }
+  .bulk-actions { justify-content: flex-start; }
   .memo-actions { opacity: 1; }
   .filter-panel { align-items: stretch; }
   .search-box { min-width: 100%; }

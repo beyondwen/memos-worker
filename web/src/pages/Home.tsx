@@ -90,8 +90,8 @@ export function Home({ currentUser }: HomeProps) {
         <div class="home-toolbar">
           <div>
             <div class="home-kicker">Today</div>
-            <h1>{viewState === "ARCHIVED" ? "归档" : "今天"}</h1>
-            <p>{viewState === "ARCHIVED" ? "已收起的备忘录" : todayLabel}</p>
+            <h1>{viewState === "ARCHIVED" ? "回收站" : "今天"}</h1>
+            <p>{viewState === "ARCHIVED" ? "可恢复或彻底删除的备忘录" : todayLabel}</p>
           </div>
           {hasFilters && (
             <button class="tag-clear" onClick={resetFilters}>
@@ -112,7 +112,7 @@ export function Home({ currentUser }: HomeProps) {
               class={viewState === "ARCHIVED" ? "active" : ""}
               onClick={() => setViewState("ARCHIVED")}
             >
-              归档
+              回收站
             </button>
           </div>
 
@@ -206,7 +206,7 @@ export function Home({ currentUser }: HomeProps) {
           propertyFilter={propertyFilter || undefined}
           advancedFilter={advancedFilter}
           refreshKey={refreshKey}
-          emptyText={viewState === "ARCHIVED" ? "暂无归档备忘录" : "暂无备忘录"}
+          emptyText={viewState === "ARCHIVED" ? "回收站为空" : "暂无备忘录"}
         />
       </div>
 

@@ -6,7 +6,10 @@ export interface MemoSseEvent {
 const REFRESH_EVENT_TYPES = new Set([
   "memo.created",
   "memo.updated",
+  "memo.archived",
+  "memo.restored",
   "memo.deleted",
+  "memo.bulk.updated",
   "memo.comment.created",
   "reaction.upserted",
   "reaction.deleted",

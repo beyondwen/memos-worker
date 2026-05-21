@@ -13,6 +13,8 @@ import { shouldRefreshForSseEvent } from "../web/src/sseEvents";
 import { buildAuthRedirectPath } from "../web/src/authFlow";
 import { formatInboxItem } from "../web/src/inboxView";
 import { buildShareUrl, normalizeWebhookForm } from "../web/src/integrationHelpers";
+import { buildBulkMemoRequest, bulkMemoActionLabel } from "../web/src/bulkActions";
+import { MEMO_WEBHOOK_EVENTS } from "../src/webhookEvents";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -171,6 +173,9 @@ describe("attachment display metadata", () => {
 describe("SSE refresh policy", () => {
   it("refreshes memo lists for memo and relation changes", () => {
     expect(shouldRefreshForSseEvent({ type: "memo.created", name: "memos/a" })).toBe(true);
+    expect(shouldRefreshForSseEvent({ type: "memo.archived", name: "memos/a" })).toBe(true);
+    expect(shouldRefreshForSseEvent({ type: "memo.restored", name: "memos/a" })).toBe(true);
+    expect(shouldRefreshForSseEvent({ type: "memo.bulk.updated", name: "memos/a" })).toBe(true);
     expect(shouldRefreshForSseEvent({ type: "memo.comment.created", name: "memos/a" })).toBe(true);
     expect(shouldRefreshForSseEvent({ type: "reaction.upserted", name: "memos/a" })).toBe(true);
   });
@@ -179,6 +184,44 @@ describe("SSE refresh policy", () => {
     expect(shouldRefreshForSseEvent(null)).toBe(false);
     expect(shouldRefreshForSseEvent({ type: "ready", name: "memos/a" })).toBe(false);
     expect(shouldRefreshForSseEvent({ type: "memo.created" })).toBe(false);
+  });
+});
+
+describe("bulk memo helpers", () => {
+  it("builds archive requests with trimmed unique memo UIDs", () => {
+    expect(buildBulkMemoRequest("ARCHIVE", [" m1 ", "m2", "m1", ""])).toEqual({
+      ok: true,
+      body: { action: "ARCHIVE", memoUids: ["m1", "m2"] },
+    });
+  });
+
+  it("requires a visibility for visibility bulk requests", () => {
+    expect(buildBulkMemoRequest("VISIBILITY", ["m1"])).toEqual({
+      ok: false,
+      error: "请选择新的可见性",
+    });
+  });
+
+  it("labels destructive bulk actions clearly", () => {
+    expect(bulkMemoActionLabel("DELETE")).toBe("彻底删除");
+  });
+});
+
+describe("webhook event catalog", () => {
+  it("includes memo lifecycle, social and share events", () => {
+    expect(MEMO_WEBHOOK_EVENTS).toEqual(expect.arrayContaining([
+      "memo.created",
+      "memo.updated",
+      "memo.archived",
+      "memo.restored",
+      "memo.deleted",
+      "memo.bulk.updated",
+      "memo.comment.created",
+      "reaction.upserted",
+      "reaction.deleted",
+      "share.created",
+      "share.deleted",
+    ]));
   });
 });
 

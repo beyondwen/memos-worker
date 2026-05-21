@@ -1,7 +1,8 @@
 import type { Env, Viewer, DbMemo, DbAttachment } from "../types";
 import { json, readJson, unixNow, generateUid } from "../utils";
-import { getMemoByUid, canReadMemo, memoWithAttachments } from "./memo";
+import { getMemoByUid, canReadMemo, memoWithAttachments, publicMemo } from "./memo";
 import { getUserById } from "../middleware";
+import { fireWebhooks } from "./webhook";
 
 export async function createShare(request: Request, env: Env, viewer: Viewer, memoUid: string): Promise<Response> {
   const memo = await getMemoByUid(env, memoUid);
@@ -16,6 +17,11 @@ export async function createShare(request: Request, env: Env, viewer: Viewer, me
     INSERT INTO memo_share (uid, memo_id, creator_id, created_ts, expires_ts)
     VALUES (?, ?, ?, ?, ?)
   `).bind(uid, memo.id, viewer.id, now, body.expiresTs && Number.isFinite(body.expiresTs) ? body.expiresTs : null).run();
+  await fireWebhooks(env, memo.creator_id, "share.created", {
+    memo: publicMemo(memo),
+    shareUid: uid,
+    actorId: viewer.id
+  });
 
   return json({
     share: {
@@ -65,6 +71,11 @@ export async function deleteShare(env: Env, viewer: Viewer, memoUid: string, sha
   if (viewer.role !== "ADMIN" && row.creator_id !== viewer.id) return json({ error: "Forbidden" }, 403);
 
   await env.DB.prepare("DELETE FROM memo_share WHERE id = ?").bind(id).run();
+  await fireWebhooks(env, memo.creator_id, "share.deleted", {
+    memo: publicMemo(memo),
+    shareId: id,
+    actorId: viewer.id
+  });
   return json({ ok: true });
 }
 

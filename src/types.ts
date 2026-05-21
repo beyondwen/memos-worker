@@ -98,7 +98,7 @@ export interface Viewer {
 
 export interface SseEvent {
   id: string;
-  type: "memo.created" | "memo.updated" | "memo.deleted" | "memo.comment.created" | "reaction.upserted" | "reaction.deleted";
+  type: "memo.created" | "memo.updated" | "memo.archived" | "memo.restored" | "memo.deleted" | "memo.bulk.updated" | "memo.comment.created" | "reaction.upserted" | "reaction.deleted";
   name: string;
   visibility: Visibility;
   creatorId: number;

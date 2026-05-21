@@ -2,6 +2,7 @@ import type { Env, Viewer, DbMemo } from "../types";
 import { json, readJson, unixNow, generateUid } from "../utils";
 import { getMemoByUid, getMemoById, publicMemo, memoWithAttachments, canReadMemo, canWriteMemo, broadcastMemo } from "./memo";
 import { getUserById } from "../middleware";
+import { fireWebhooks } from "./webhook";
 
 export async function createComment(request: Request, env: Env, viewer: Viewer, parentUid: string): Promise<Response> {
   const parent = await getMemoByUid(env, parentUid);
@@ -42,6 +43,11 @@ export async function createComment(request: Request, env: Env, viewer: Viewer, 
   if (comment) {
     await broadcastMemo(env, "memo.created", comment);
     await broadcastMemo(env, "memo.comment.created", parent);
+    await fireWebhooks(env, comment.creator_id, "memo.created", { memo: publicMemo(comment) });
+    await fireWebhooks(env, parent.creator_id, "memo.comment.created", {
+      memo: publicMemo(parent),
+      comment: publicMemo(comment)
+    });
   }
   return json({ memo: comment ? await memoWithAttachments(env, comment) : null }, 201);
 }
@@ -82,6 +88,11 @@ export async function upsertReaction(request: Request, env: Env, viewer: Viewer,
   `).bind(now, viewer.id, memo.id, reactionType).run();
 
   await broadcastMemo(env, "reaction.upserted", memo);
+  await fireWebhooks(env, memo.creator_id, "reaction.upserted", {
+    memo: publicMemo(memo),
+    reactionType,
+    actorId: viewer.id
+  });
   return await listReactionsForMemo(env, memo.id);
 }
 
@@ -100,6 +111,11 @@ export async function deleteReaction(env: Env, viewer: Viewer, memoUid: string, 
 
   await env.DB.prepare("DELETE FROM reaction WHERE id = ?").bind(id).run();
   await broadcastMemo(env, "reaction.deleted", memo);
+  await fireWebhooks(env, memo.creator_id, "reaction.deleted", {
+    memo: publicMemo(memo),
+    reactionId: id,
+    actorId: viewer.id
+  });
   return await listReactionsForMemo(env, memo.id);
 }
 

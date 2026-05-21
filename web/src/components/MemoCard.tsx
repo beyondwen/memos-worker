@@ -45,11 +45,12 @@ interface MemoCardProps {
   memo: Memo;
   currentUser: CurrentUser | null;
   onUpdate?: (memo: Memo) => void;
+  onRemove?: (uid: string) => void;
 }
 
 const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
 
-export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
+export function MemoCard({ memo, currentUser, onUpdate, onRemove }: MemoCardProps) {
   const { notify, confirm } = useFeedback();
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(memo.content);
@@ -141,6 +142,23 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
       notify("备忘录已恢复", "success");
     } catch (err) {
       notify(`恢复失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handlePurge = async () => {
+    const ok = await confirm({
+      title: "彻底删除这条备忘录？",
+      message: "这会永久移除备忘录，附件会解绑但不会一并删除。",
+      confirmText: "彻底删除",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/api/v1/memos/${memo.uid}?purge=true`, { method: "DELETE" });
+      onRemove?.(memo.uid);
+      notify("备忘录已彻底删除", "success");
+    } catch (err) {
+      notify(`彻底删除失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -394,6 +412,7 @@ export function MemoCard({ memo, currentUser, onUpdate }: MemoCardProps) {
         onPin={handleTogglePinned}
         onArchive={handleArchive}
         onRestore={handleRestore}
+        onDelete={handlePurge}
         onReact={handleToggleReactions}
         onComments={handleToggleComments}
         onShare={handleShare}

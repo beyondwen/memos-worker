@@ -3,7 +3,7 @@ import { json, html, corsHeaders, readJson, unixNow, normalizeUsername, assertPa
 import { hashPassword, verifyPassword, signJwt, verifyJwt, sha256Hex } from "./auth";
 import { currentViewer, getUserById } from "./middleware";
 import { publicUser, listUsers, getUser, updateUser, deleteUser, updateMe, changePassword, listPats, createPat, deletePat, listUserSettings, getUserSetting, updateUserSetting, getUserStats } from "./services/user";
-import { listMemos, createMemo, getMemo, updateMemo, deleteMemo, exportData, importData } from "./services/memo";
+import { listMemos, createMemo, getMemo, updateMemo, deleteMemo, purgeMemo, bulkUpdateMemos, exportData, importData } from "./services/memo";
 import { uploadAttachment, downloadAttachment, listAttachments } from "./services/attachment";
 import { createComment, listComments, upsertReaction, deleteReaction, listReactions, getRelations, setRelations } from "./services/social";
 import { createShare, listShares, deleteShare, getSharedMemo, downloadSharedAttachment } from "./services/share";
@@ -66,6 +66,7 @@ export async function route(request: Request, env: Env): Promise<Response> {
       return listMemos(request, env, viewer, filterSql);
     }
     if (url.pathname === "/api/v1/memos" && method === "POST") return createMemo(request, env, viewer);
+    if (url.pathname === "/api/v1/memos/batch" && method === "POST") return bulkUpdateMemos(request, env, viewer);
     if (url.pathname === "/api/v1/export/memos" && method === "GET") return exportData(env, viewer);
     if (url.pathname === "/api/v1/import/memos" && method === "POST") return importData(request, env, viewer);
 
@@ -85,6 +86,7 @@ export async function route(request: Request, env: Env): Promise<Response> {
       const uid = decodeURIComponent(memoMatch[1]);
       if (method === "GET") return getMemo(env, viewer, uid);
       if (method === "PATCH") return updateMemo(request, env, viewer, uid);
+      if (method === "DELETE" && url.searchParams.get("purge") === "true") return purgeMemo(env, viewer, uid);
       if (method === "DELETE") return deleteMemo(env, viewer, uid);
     }
 

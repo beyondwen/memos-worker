@@ -9,6 +9,7 @@ interface MemoActionsProps {
   onPin: () => void;
   onArchive: () => void;
   onRestore: () => void;
+  onDelete: () => void;
   onReact: () => void;
   onComments: () => void;
   onShare: () => void;
@@ -25,6 +26,7 @@ export function MemoActions({
   onPin,
   onArchive,
   onRestore,
+  onDelete,
   onReact,
   onComments,
   onShare,
@@ -45,9 +47,14 @@ export function MemoActions({
         </button>
       )}
       {isOwner && archived && (
-        <button class="memo-action-icon" title="恢复" aria-label="恢复" onClick={onRestore}>
-          <span aria-hidden="true">↺</span>
-        </button>
+        <>
+          <button class="memo-action-icon" title="恢复" aria-label="恢复" onClick={onRestore}>
+            <span aria-hidden="true">↺</span>
+          </button>
+          <button class="memo-action-icon danger" title="彻底删除" aria-label="彻底删除" onClick={onDelete}>
+            <span aria-hidden="true">×</span>
+          </button>
+        </>
       )}
       {isOwner && !archived && (
         <button class="memo-action-icon" title="归档" aria-label="归档" onClick={onArchive}>

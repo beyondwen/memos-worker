@@ -4,6 +4,8 @@ import {
   safeJsonParse, encodePageToken, decodePageToken, clampNumber, HttpError
 } from "../utils";
 import { getUserById } from "../middleware";
+import { fireWebhooks } from "./webhook";
+import type { MemoWebhookEvent } from "../webhookEvents";
 
 export function publicMemo(memo: DbMemo): Record<string, unknown> {
   return {
@@ -115,6 +117,19 @@ export async function broadcastMemo(env: Env, type: SseEvent["type"], memo: DbMe
   });
 }
 
+async function emitMemoEvent(
+  env: Env,
+  type: SseEvent["type"],
+  memo: DbMemo,
+  payload: Record<string, unknown> = {}
+): Promise<void> {
+  await broadcastMemo(env, type, memo);
+  await fireWebhooks(env, memo.creator_id, type satisfies MemoWebhookEvent, {
+    memo: publicMemo(memo),
+    ...payload
+  });
+}
+
 export function buildMemoPayload(content: string, explicitTags?: string[]): Record<string, unknown> {
   const tags = explicitTags ?? extractTags(content);
   return {
@@ -208,7 +223,7 @@ export async function createMemo(request: Request, env: Env, viewer: Viewer): Pr
   if (body.attachmentUids?.length) {
     await attachFiles(env, viewer, Number(result.meta.last_row_id), body.attachmentUids);
   }
-  if (memo) await broadcastMemo(env, "memo.created", memo);
+  if (memo) await emitMemoEvent(env, "memo.created", memo);
   return json({ memo: memo ? await memoWithAttachments(env, memo) : null }, 201);
 }
 
@@ -250,7 +265,12 @@ export async function updateMemo(request: Request, env: Env, viewer: Viewer, uid
   if (body.attachmentUids) await attachFiles(env, viewer, memo.id, body.attachmentUids);
 
   const updated = await getMemoByUid(env, uid);
-  if (updated) await broadcastMemo(env, "memo.updated", updated);
+  if (updated) {
+    const eventType: SseEvent["type"] = memo.row_status !== nextStatus
+      ? nextStatus === "ARCHIVED" ? "memo.archived" : "memo.restored"
+      : "memo.updated";
+    await emitMemoEvent(env, eventType, updated);
+  }
   return json({ memo: updated ? await memoWithAttachments(env, updated) : null });
 }
 
@@ -259,11 +279,122 @@ export async function deleteMemo(env: Env, viewer: Viewer, uid: string): Promise
   if (!memo) return json({ error: "Memo not found" }, 404);
   if (!canWriteMemo(memo, viewer)) return json({ error: "Forbidden" }, 403);
 
+  await archiveMemoRecord(env, memo);
+  await emitMemoEvent(env, "memo.archived", { ...memo, row_status: "ARCHIVED", updated_ts: unixNow() });
+  return json({ ok: true });
+}
+
+export async function purgeMemo(env: Env, viewer: Viewer, uid: string): Promise<Response> {
+  const memo = await getMemoByUid(env, uid);
+  if (!memo) return json({ error: "Memo not found" }, 404);
+  if (!canWriteMemo(memo, viewer)) return json({ error: "Forbidden" }, 403);
+
+  await purgeMemoRecord(env, memo);
+  await emitMemoEvent(env, "memo.deleted", memo, { hardDelete: true });
+  return json({ ok: true });
+}
+
+export async function bulkUpdateMemos(request: Request, env: Env, viewer: Viewer): Promise<Response> {
+  const body = await readJson<{
+    action?: string;
+    memoUids?: string[];
+    visibility?: string;
+  }>(request);
+  const action = String(body.action ?? "").toUpperCase();
+  const memoUids = [...new Set((body.memoUids ?? []).map((uid) => String(uid).trim()).filter(Boolean))].slice(0, 100);
+  if (!["ARCHIVE", "RESTORE", "DELETE", "VISIBILITY"].includes(action)) {
+    return json({ error: "Invalid bulk action" }, 400);
+  }
+  if (memoUids.length === 0) return json({ error: "memoUids is required" }, 400);
+
+  const visibility = action === "VISIBILITY" ? normalizeVisibility(body.visibility, false) : null;
+  if (action === "VISIBILITY" && !visibility) return json({ error: "Invalid visibility" }, 400);
+
+  const result = { updated: 0, deleted: 0, skipped: 0 };
+  const touched: DbMemo[] = [];
+
+  for (const uid of memoUids) {
+    const memo = await getMemoByUid(env, uid);
+    if (!memo || !canWriteMemo(memo, viewer)) {
+      result.skipped += 1;
+      continue;
+    }
+
+    if (action === "DELETE") {
+      await purgeMemoRecord(env, memo);
+      result.deleted += 1;
+      touched.push(memo);
+      await broadcastMemo(env, "memo.deleted", memo);
+      continue;
+    }
+
+    if (action === "ARCHIVE") {
+      await archiveMemoRecord(env, memo);
+    } else if (action === "RESTORE") {
+      await restoreMemoRecord(env, memo);
+    } else if (action === "VISIBILITY" && visibility) {
+      await setMemoVisibility(env, memo, visibility);
+    }
+
+    const updated = await getMemoByUid(env, uid);
+    if (updated) {
+      result.updated += 1;
+      touched.push(updated);
+      const eventType: SseEvent["type"] = action === "ARCHIVE"
+        ? "memo.archived"
+        : action === "RESTORE"
+          ? "memo.restored"
+          : "memo.updated";
+      await broadcastMemo(env, eventType, updated);
+    }
+  }
+
+  if (touched.length > 0) {
+    await fireWebhooks(env, viewer.id, "memo.bulk.updated", {
+      action,
+      memoUids: touched.map((memo) => memo.uid),
+      result
+    });
+  }
+
+  return json(result);
+}
+
+async function archiveMemoRecord(env: Env, memo: DbMemo): Promise<void> {
   await env.DB.prepare("UPDATE memo SET row_status = 'ARCHIVED', updated_ts = ? WHERE id = ?")
     .bind(unixNow(), memo.id)
     .run();
-  await broadcastMemo(env, "memo.deleted", memo);
-  return json({ ok: true });
+}
+
+async function restoreMemoRecord(env: Env, memo: DbMemo): Promise<void> {
+  await env.DB.prepare("UPDATE memo SET row_status = 'NORMAL', updated_ts = ? WHERE id = ?")
+    .bind(unixNow(), memo.id)
+    .run();
+}
+
+async function setMemoVisibility(env: Env, memo: DbMemo, visibility: Visibility): Promise<void> {
+  await env.DB.prepare("UPDATE memo SET visibility = ?, updated_ts = ? WHERE id = ?")
+    .bind(visibility, unixNow(), memo.id)
+    .run();
+}
+
+async function purgeMemoRecord(env: Env, memo: DbMemo): Promise<void> {
+  const now = unixNow();
+  await env.DB.prepare("UPDATE attachment SET memo_id = NULL, updated_ts = ? WHERE memo_id = ?")
+    .bind(now, memo.id)
+    .run();
+  await env.DB.prepare("DELETE FROM reaction WHERE content_type = 'MEMO' AND content_id = ?")
+    .bind(memo.id)
+    .run();
+  await env.DB.prepare("DELETE FROM memo_share WHERE memo_id = ?")
+    .bind(memo.id)
+    .run();
+  await env.DB.prepare("DELETE FROM memo_relation WHERE memo_id = ? OR related_memo_id = ?")
+    .bind(memo.id, memo.id)
+    .run();
+  await env.DB.prepare("DELETE FROM memo WHERE id = ?")
+    .bind(memo.id)
+    .run();
 }
 
 export async function exportData(env: Env, viewer: Viewer): Promise<Response> {
