@@ -14,6 +14,7 @@ import { listTags, renameTag } from "./services/tags";
 import { getTimeline } from "./services/timeline";
 import { listAuditLogs } from "./services/audit";
 import { importOriginalMemos, previewOriginalMemosMigration } from "./services/migration";
+import { suggestMemoRelations } from "./services/aiRelations";
 import { generateRss } from "./rss";
 import { parseFilter } from "./filter";
 import { appHtml } from "./ui";
@@ -148,6 +149,11 @@ export async function route(request: Request, env: Env): Promise<Response> {
     }
 
     // Memo relations
+    const relationSuggestMatch = url.pathname.match(/^\/api\/v1\/memos\/([^/]+)\/relations\/suggest$/);
+    if (relationSuggestMatch && method === "POST") {
+      return suggestMemoRelations(env, viewer, decodeURIComponent(relationSuggestMatch[1]));
+    }
+
     const relationsMatch = url.pathname.match(/^\/api\/v1\/memos\/([^/]+)\/relations$/);
     if (relationsMatch) {
       const uid = decodeURIComponent(relationsMatch[1]);

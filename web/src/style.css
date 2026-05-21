@@ -761,6 +761,13 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   background: #fef2f2;
 }
 .relation-editor { display: flex; flex-direction: column; gap: 8px; }
+.relation-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(229,226,220,0.76);
+}
+.relation-heading h2 {
+  margin: 0; padding: 0; border: 0;
+}
 .relation-editor textarea {
   min-height: 74px;
   background: rgba(248,250,247,0.74);
@@ -790,6 +797,16 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   cursor: not-allowed;
   transform: none;
 }
+.relation-suggestions {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dbe5dd;
+  border-radius: 14px;
+  background: rgba(248,250,247,0.72);
+}
+.relation-suggestions .relation-save-button {
+  margin-top: 10px;
+}
 .relation-group { margin-top: 14px; }
 .relation-title {
   color: var(--muted); font-size: 0.8rem; font-weight: 700;
@@ -807,6 +824,10 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   color: var(--ink); font-size: 0.8rem;
 }
 .relation-chip:hover { border-color: var(--line-strong); background: var(--paper); }
+.relation-chip.suggested {
+  border-color: #c9d8cf;
+  background: #f8fbf8;
+}
 .relation-chip small {
   max-width: 260px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

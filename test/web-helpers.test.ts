@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildMemoListPath } from "../web/src/memoQuery";
 import { buildAdvancedMemoFilter } from "../web/src/advancedSearch";
-import { parseRelationInput } from "../web/src/relationView";
+import { mergeRelationInputWithSuggestions, parseRelationInput } from "../web/src/relationView";
 import {
   clearEditorDraft,
   loadEditorDraft,
@@ -116,6 +116,15 @@ describe("memo templates", () => {
 
   it("appends a template after existing content", () => {
     expect(applyMemoTemplate("已有内容", "todo")).toContain("已有内容\n\n## TODO");
+  });
+});
+
+describe("relation view helpers", () => {
+  it("merges AI suggestions into existing relation input without duplicates", () => {
+    expect(mergeRelationInputWithSuggestions("m_a", [
+      { memo: "memos/m_a", content: "A", reason: "duplicate", confidence: 0.9, source: "ai" },
+      { memo: "memos/m_b", content: "B", reason: "related", confidence: 0.8, source: "ai" },
+    ])).toBe("m_a\nm_b");
   });
 });
 

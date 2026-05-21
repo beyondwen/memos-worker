@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
-import { parseRelationInput, relationInputFromRelations, type MemoRelation } from "../relationView";
+import {
+  mergeRelationInputWithSuggestions,
+  parseRelationInput,
+  relationInputFromRelations,
+  type MemoRelation,
+  type RelationSuggestion,
+} from "../relationView";
 import { useFeedback } from "./Feedback";
 
 interface RelationPanelProps {
@@ -14,6 +20,8 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
   const [relations, setRelations] = useState<MemoRelation[]>([]);
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<RelationSuggestion[]>([]);
 
   const fetchRelations = useCallback(async () => {
     const data = await api<{ relations: MemoRelation[] }>(`/api/v1/memos/${memoUid}/relations`);
@@ -42,12 +50,39 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
     }
   };
 
+  const suggestRelations = async () => {
+    setSuggesting(true);
+    try {
+      const data = await api<{ suggestions: RelationSuggestion[] }>(`/api/v1/memos/${memoUid}/relations/suggest`, {
+        method: "POST",
+      });
+      setSuggestions(data.suggestions);
+      notify(data.suggestions.length > 0 ? `识别到 ${data.suggestions.length} 条候选关联` : "暂未发现明显关联", "success");
+    } catch (err) {
+      notify(`AI 识别失败：${(err as Error).message}`, "error");
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const applySuggestions = () => {
+    setInput(mergeRelationInputWithSuggestions(input, suggestions));
+    notify("推荐关联已加入待保存列表", "success");
+  };
+
   const outgoing = relations.filter((relation) => relation.direction === "outgoing");
   const incoming = relations.filter((relation) => relation.direction === "incoming");
 
   return (
     <div class="settings-section compact-section">
-      <h2>引用关系</h2>
+      <div class="relation-heading">
+        <h2>知识关联</h2>
+        {canEdit && (
+          <button class="btn btn-secondary btn-sm" onClick={suggestRelations} disabled={suggesting}>
+            {suggesting ? "识别中..." : "AI 识别关联"}
+          </button>
+        )}
+      </div>
       {canEdit && (
         <div class="relation-editor">
           <textarea
@@ -62,6 +97,25 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
               {saving ? "保存中..." : "保存引用"}
             </button>
           </div>
+        </div>
+      )}
+      {suggestions.length > 0 && (
+        <div class="relation-suggestions">
+          <div class="relation-title">AI 推荐</div>
+          <div class="relation-list">
+            {suggestions.map((suggestion) => {
+              const uid = suggestion.memo.replace(/^memos\//, "");
+              return (
+                <button key={suggestion.memo} class="relation-chip suggested" onClick={() => route(`/memos/${uid}`)}>
+                  <span>{uid}</span>
+                  <small>{suggestion.reason} · {Math.round(suggestion.confidence * 100)}%</small>
+                </button>
+              );
+            })}
+          </div>
+          <button class="btn relation-save-button" onClick={applySuggestions}>
+            应用推荐
+          </button>
         </div>
       )}
       <RelationList title="引用到" relations={outgoing} />

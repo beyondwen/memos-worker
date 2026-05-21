@@ -6,6 +6,7 @@ import { backupRetentionCutoff, buildBackupObjectKey, previewBackupPayload } fro
 import { normalizeTagName, replaceTagInContent } from "../src/services/tags";
 import { auditActionLabel } from "../src/services/audit";
 import { mapOriginalMemoToImport, normalizeMemosBaseUrl, summarizeOriginalMemos } from "../src/services/migration";
+import { parseAiRelationSuggestions, rankRelationCandidates } from "../src/services/aiRelations";
 
 describe("password hashing", () => {
   it("verifies a valid PBKDF2 password and rejects a wrong password", async () => {
@@ -268,5 +269,59 @@ describe("original Memos migration helpers", () => {
       archivedCount: 1,
       truncated: false
     });
+  });
+});
+
+describe("AI relation helpers", () => {
+  const current = {
+    uid: "m_current",
+    content: "今天研究 Memos 迁移，想把导入的数据做成知识图谱",
+    payload: JSON.stringify({ tags: ["memos", "graph"] }),
+    updated_ts: 2000,
+  };
+
+  it("limits and ranks local candidates before sending them to AI", () => {
+    const candidates = [
+      {
+        uid: "m_related",
+        content: "Memos 导入之后可以通过引用关系形成 graph",
+        payload: JSON.stringify({ tags: ["memos"] }),
+        updated_ts: 1000,
+      },
+      ...Array.from({ length: 60 }, (_, index) => ({
+        uid: `m_${index}`,
+        content: `普通日记 ${index}`,
+        payload: "{}",
+        updated_ts: 900 - index,
+      })),
+    ];
+
+    const ranked = rankRelationCandidates(current, candidates, 30);
+
+    expect(ranked).toHaveLength(30);
+    expect(ranked[0].uid).toBe("m_related");
+    expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
+  });
+
+  it("parses AI suggestions and drops unknown memo IDs", () => {
+    const parsed = parseAiRelationSuggestions(
+      JSON.stringify({
+        suggestions: [
+          { memo: "memos/m_related", reason: "都在讨论 Memos 迁移", confidence: 0.82 },
+          { memo: "memos/m_missing", reason: "不存在", confidence: 0.9 },
+        ],
+      }),
+      new Map([["m_related", { uid: "m_related", content: "content" }]])
+    );
+
+    expect(parsed).toEqual([
+      {
+        memo: "memos/m_related",
+        content: "content",
+        reason: "都在讨论 Memos 迁移",
+        confidence: 0.82,
+        source: "ai",
+      },
+    ]);
   });
 });

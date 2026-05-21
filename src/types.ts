@@ -5,6 +5,9 @@ export interface Env {
   ASSETS?: { fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response> };
   SERVER_SECRET: string;
   ENVIRONMENT?: string;
+  AI_API_KEY?: string;
+  AI_BASE_URL?: string;
+  AI_MODEL?: string;
 }
 
 export type Role = "ADMIN" | "USER";

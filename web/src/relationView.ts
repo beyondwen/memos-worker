@@ -10,6 +10,14 @@ export interface MemoRelation {
   content?: string;
 }
 
+export interface RelationSuggestion {
+  memo: string;
+  content: string;
+  reason: string;
+  confidence: number;
+  source: "ai" | "local";
+}
+
 export function memoUidFromRef(value: string): string {
   const trimmed = value.trim();
   const pathMatch = trimmed.match(/\/memos\/([^/?#\s,]+)/);
@@ -36,4 +44,16 @@ export function relationInputFromRelations(relations: MemoRelation[]): string {
     .filter((relation) => relation.direction === "outgoing")
     .map((relation) => relation.memo.replace(/^memos\//, ""))
     .join("\n");
+}
+
+export function mergeRelationInputWithSuggestions(input: string, suggestions: RelationSuggestion[]): string {
+  const existing = parseRelationInput(input).map((relation) => relation.memo.replace(/^memos\//, ""));
+  const seen = new Set(existing);
+  for (const suggestion of suggestions) {
+    const uid = memoUidFromRef(suggestion.memo);
+    if (!uid || seen.has(uid)) continue;
+    seen.add(uid);
+    existing.push(uid);
+  }
+  return existing.join("\n");
 }
