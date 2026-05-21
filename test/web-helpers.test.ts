@@ -16,6 +16,8 @@ import { buildShareUrl, normalizeWebhookForm } from "../web/src/integrationHelpe
 import { buildBulkMemoRequest, bulkMemoActionLabel } from "../web/src/bulkActions";
 import { MEMO_WEBHOOK_EVENTS } from "../src/webhookEvents";
 import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../web/src/webhookDeliveryView";
+import { highlightRenderedHtml } from "../web/src/searchHighlight";
+import { applyMemoTemplate, MEMO_TEMPLATES } from "../web/src/memoTemplates";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -61,6 +63,34 @@ describe("memo list query builder", () => {
     const url = new URL(path, "https://example.test");
     expect(url.searchParams.has("filter")).toBe(false);
     expect(url.searchParams.get("page_size")).toBe("20");
+  });
+});
+
+describe("search highlighting", () => {
+  it("highlights matching text without touching html tags", () => {
+    expect(highlightRenderedHtml("<p>Hello <strong>memo</strong></p>", "memo")).toBe(
+      '<p>Hello <strong><mark class="search-hit">memo</mark></strong></p>'
+    );
+  });
+
+  it("ignores blank search terms", () => {
+    expect(highlightRenderedHtml("<p>Hello memo</p>", "  ")).toBe("<p>Hello memo</p>");
+  });
+});
+
+describe("memo templates", () => {
+  it("exposes practical quick memo templates", () => {
+    expect(MEMO_TEMPLATES.map((template) => template.id)).toEqual([
+      "todo",
+      "meeting",
+      "study",
+      "bug",
+      "daily",
+    ]);
+  });
+
+  it("appends a template after existing content", () => {
+    expect(applyMemoTemplate("已有内容", "todo")).toContain("已有内容\n\n## TODO");
   });
 });
 

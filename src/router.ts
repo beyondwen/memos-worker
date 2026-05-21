@@ -4,11 +4,12 @@ import { hashPassword, verifyPassword, signJwt, verifyJwt, sha256Hex } from "./a
 import { currentViewer, getUserById } from "./middleware";
 import { publicUser, listUsers, getUser, updateUser, deleteUser, updateMe, changePassword, listPats, createPat, deletePat, listUserSettings, getUserSetting, updateUserSetting, getUserStats } from "./services/user";
 import { listMemos, createMemo, getMemo, updateMemo, deleteMemo, purgeMemo, bulkUpdateMemos, exportData, importData } from "./services/memo";
-import { uploadAttachment, downloadAttachment, listAttachments } from "./services/attachment";
+import { uploadAttachment, downloadAttachment, listAttachments, deleteAttachment } from "./services/attachment";
 import { createComment, listComments, upsertReaction, deleteReaction, listReactions, getRelations, setRelations } from "./services/social";
 import { createShare, listShares, deleteShare, getSharedMemo, downloadSharedAttachment } from "./services/share";
 import { listInbox, updateInboxStatus, deleteInboxItem } from "./services/inbox";
-import { listWebhooks, createWebhook, updateWebhook, deleteWebhook, listWebhookDeliveries, retryWebhookDelivery } from "./services/webhook";
+import { listWebhooks, createWebhook, updateWebhook, deleteWebhook, listWebhookDeliveries, retryWebhookDelivery, testWebhook } from "./services/webhook";
+import { createBackupResponse } from "./services/backup";
 import { generateRss } from "./rss";
 import { parseFilter } from "./filter";
 import { appHtml } from "./ui";
@@ -69,10 +70,18 @@ export async function route(request: Request, env: Env): Promise<Response> {
     if (url.pathname === "/api/v1/memos/batch" && method === "POST") return bulkUpdateMemos(request, env, viewer);
     if (url.pathname === "/api/v1/export/memos" && method === "GET") return exportData(env, viewer);
     if (url.pathname === "/api/v1/import/memos" && method === "POST") return importData(request, env, viewer);
+    if (url.pathname === "/api/v1/backups" && method === "POST") {
+      if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
+      return createBackupResponse(env);
+    }
 
     // Attachments
     if (url.pathname === "/api/v1/attachments" && method === "POST") return uploadAttachment(request, env, viewer);
-    if (url.pathname === "/api/v1/attachments" && method === "GET") return listAttachments(env, viewer);
+    if (url.pathname === "/api/v1/attachments" && method === "GET") return listAttachments(request, env, viewer);
+    const attachmentDeleteMatch = url.pathname.match(/^\/api\/v1\/attachments\/([^/]+)$/);
+    if (attachmentDeleteMatch && method === "DELETE") {
+      return deleteAttachment(env, viewer, decodeURIComponent(attachmentDeleteMatch[1]));
+    }
 
     // SSE
     if (url.pathname === "/api/v1/sse" && method === "GET") return connectSse(env, viewer);
@@ -149,6 +158,11 @@ export async function route(request: Request, env: Env): Promise<Response> {
     const webhookDeliveryRetryMatch = url.pathname.match(/^\/api\/v1\/webhooks\/deliveries\/([^/]+)\/retry$/);
     if (webhookDeliveryRetryMatch && method === "POST") {
       return retryWebhookDelivery(env, viewer, decodeURIComponent(webhookDeliveryRetryMatch[1]));
+    }
+
+    const webhookTestMatch = url.pathname.match(/^\/api\/v1\/webhooks\/([^/]+)\/test$/);
+    if (webhookTestMatch && method === "POST") {
+      return testWebhook(env, viewer, decodeURIComponent(webhookTestMatch[1]));
     }
 
     const webhookMatch = url.pathname.match(/^\/api\/v1\/webhooks\/([^/]+)$/);

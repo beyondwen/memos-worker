@@ -96,13 +96,17 @@ export async function downloadAttachment(env: Env, viewer: Viewer, uid: string):
   });
 }
 
-export async function listAttachments(env: Env, viewer: Viewer): Promise<Response> {
+export async function listAttachments(request: Request, env: Env, viewer: Viewer): Promise<Response> {
+  const url = new URL(request.url);
   const where: string[] = [];
   const params: unknown[] = [];
 
   if (viewer.role !== "ADMIN") {
     where.push("attachment.creator_id = ?");
     params.push(viewer.id);
+  }
+  if (url.searchParams.get("unattached") === "true") {
+    where.push("attachment.memo_id IS NULL");
   }
 
   const sql = `
@@ -116,4 +120,15 @@ export async function listAttachments(env: Env, viewer: Viewer): Promise<Respons
 
   const rows = await env.DB.prepare(sql).bind(...params).all<DbAttachment>();
   return json({ attachments: rows.results.map(publicAttachment) });
+}
+
+export async function deleteAttachment(env: Env, viewer: Viewer, uid: string): Promise<Response> {
+  const attachment = await getAttachmentByUid(env, uid);
+  if (!attachment) return json({ error: "Attachment not found" }, 404);
+  if (viewer.role !== "ADMIN" && attachment.creator_id !== viewer.id) return json({ error: "Forbidden" }, 403);
+  if (attachment.memo_id) return json({ error: "Only unattached attachments can be deleted" }, 409);
+
+  await env.MEMOS_BUCKET.delete(attachment.reference).catch(() => undefined);
+  await env.DB.prepare("DELETE FROM attachment WHERE id = ?").bind(attachment.id).run();
+  return json({ ok: true });
 }

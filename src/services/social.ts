@@ -169,8 +169,8 @@ export async function getRelations(env: Env, viewer: Viewer, memoUid: string): P
 
   return json({
     relations: [
-      ...refs.results.map(r => ({ memo: `memos/${r.uid}`, type: r.type, direction: "outgoing" as const })),
-      ...backRefs.results.map(r => ({ memo: `memos/${r.uid}`, type: r.type, direction: "incoming" as const }))
+      ...refs.results.map(r => ({ memo: `memos/${r.uid}`, type: r.type, direction: "outgoing" as const, content: r.content })),
+      ...backRefs.results.map(r => ({ memo: `memos/${r.uid}`, type: r.type, direction: "incoming" as const, content: r.content }))
     ]
   });
 }

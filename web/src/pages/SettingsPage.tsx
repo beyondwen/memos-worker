@@ -52,6 +52,15 @@ interface WebhookDelivery {
   responseBody: string;
 }
 
+interface Attachment {
+  uid: string;
+  filename: string;
+  type: string;
+  size: number;
+  createdTs: number;
+  url: string;
+}
+
 interface UserStats {
   memoCount: number;
   attachmentCount: number;
@@ -82,6 +91,10 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [webhookSaving, setWebhookSaving] = useState(false);
   const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
   const [retryingDeliveryId, setRetryingDeliveryId] = useState<number | null>(null);
+  const [testingWebhookId, setTestingWebhookId] = useState<number | null>(null);
+  const [unattachedAttachments, setUnattachedAttachments] = useState<Attachment[]>([]);
+  const [deletingAttachmentUid, setDeletingAttachmentUid] = useState("");
+  const [backupCreating, setBackupCreating] = useState(false);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [instanceName, setInstanceName] = useState("Memos Worker");
 
@@ -150,11 +163,22 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   }, [currentUser]);
 
+  const fetchUnattachedAttachments = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api<{ attachments: Attachment[] }>("/api/v1/attachments?unattached=true");
+      setUnattachedAttachments(data.attachments);
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     fetchWebhooks();
     fetchWebhookDeliveries();
+    fetchUnattachedAttachments();
     fetchOverview();
-  }, [fetchOverview, fetchWebhookDeliveries, fetchWebhooks]);
+  }, [fetchOverview, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
 
   if (!currentUser) return null;
 
@@ -273,6 +297,19 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     fetchWebhookDeliveries();
   };
 
+  const handleTestWebhook = async (webhook: Webhook) => {
+    setTestingWebhookId(webhook.id);
+    try {
+      await api(`/api/v1/webhooks/${webhook.id}/test`, { method: "POST" });
+      await fetchWebhookDeliveries();
+      notify("测试事件已发送", "success");
+    } catch (err) {
+      notify(`测试失败：${(err as Error).message}`, "error");
+    } finally {
+      setTestingWebhookId(null);
+    }
+  };
+
   const handleDeleteWebhook = async (webhook: Webhook) => {
     const ok = await confirm({
       title: "删除 Webhook？",
@@ -332,12 +369,50 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
+  const handleDeleteAttachment = async (attachment: Attachment) => {
+    const ok = await confirm({
+      title: "删除未绑定附件？",
+      message: attachment.filename,
+      confirmText: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingAttachmentUid(attachment.uid);
+    try {
+      await api(`/api/v1/attachments/${attachment.uid}`, { method: "DELETE" });
+      await fetchUnattachedAttachments();
+      notify("附件已删除", "success");
+    } catch (err) {
+      notify(`删除附件失败：${(err as Error).message}`, "error");
+    } finally {
+      setDeletingAttachmentUid("");
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    setBackupCreating(true);
+    try {
+      const data = await api<{ backup: { key: string; size: number } }>("/api/v1/backups", { method: "POST" });
+      notify(`备份已创建：${data.backup.key}`, "success");
+    } catch (err) {
+      notify(`创建备份失败：${(err as Error).message}`, "error");
+    } finally {
+      setBackupCreating(false);
+    }
+  };
+
   const formatTs = (ts: number) =>
     new Date(ts * 1000).toLocaleDateString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
+
+  const formatBytes = (size: number) => {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  };
 
   return (
     <div class="settings-layout">
@@ -524,6 +599,13 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               <button class="btn btn-ghost btn-sm" onClick={() => handleToggleWebhook(webhook)}>
                 {webhook.rowStatus === "NORMAL" ? "停用" : "启用"}
               </button>
+              <button
+                class="btn btn-ghost btn-sm"
+                onClick={() => handleTestWebhook(webhook)}
+                disabled={testingWebhookId === webhook.id}
+              >
+                {testingWebhookId === webhook.id ? "测试中..." : "测试"}
+              </button>
               <button class="btn btn-ghost btn-sm" onClick={() => handleDeleteWebhook(webhook)}>
                 删除
               </button>
@@ -596,6 +678,9 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
             <button class="btn btn-secondary" onClick={handleExport}>
               导出备忘录
             </button>
+            <button class="btn btn-secondary" onClick={handleCreateBackup} disabled={backupCreating}>
+              {backupCreating ? "备份中..." : "立即备份"}
+            </button>
             <label class="btn btn-secondary file-label">
               导入备忘录
               <input type="file" accept="application/json" onChange={handleImport} />
@@ -603,6 +688,29 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           </div>
         </div>
       )}
+
+      <div class="settings-section">
+        <h2>附件清理</h2>
+        <div class="pat-list">
+          {unattachedAttachments.map((attachment) => (
+            <div key={attachment.uid} class="pat-item attachment-cleanup-item">
+              <span class="pat-name">{attachment.filename}</span>
+              <span class="pat-prefix">{formatBytes(attachment.size)}</span>
+              <a class="pat-date" href={attachment.url} target="_blank" rel="noopener noreferrer">
+                预览
+              </a>
+              <button
+                class="btn btn-ghost btn-sm"
+                onClick={() => handleDeleteAttachment(attachment)}
+                disabled={deletingAttachmentUid === attachment.uid}
+              >
+                {deletingAttachmentUid === attachment.uid ? "删除中..." : "删除"}
+              </button>
+            </div>
+          ))}
+          {unattachedAttachments.length === 0 && <div class="muted-line">暂无未绑定附件。</div>}
+        </div>
+      </div>
     </div>
   );
 }

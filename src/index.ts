@@ -1,6 +1,7 @@
 import type { Env } from "./types";
 import { HttpError, json } from "./utils";
 import { route } from "./router";
+import { createBackup } from "./services/backup";
 
 export { SSEHub } from "./sse";
 export { hashPassword, verifyPassword } from "./auth";
@@ -18,5 +19,8 @@ export default {
       console.error(error);
       return json({ error: "Internal server error" }, 500);
     }
+  },
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    await createBackup(env);
   }
 };

@@ -7,6 +7,7 @@ export interface MemoRelation {
   memo: string;
   type: string;
   direction: "outgoing" | "incoming";
+  content?: string;
 }
 
 export function memoUidFromRef(value: string): string {

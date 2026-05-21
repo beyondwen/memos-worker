@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildMemoPayload, hashPassword, sanitizeFilename, verifyPassword } from "../src/index";
 import { parseFilter } from "../src/filter";
-import { deliveryStatusFromResponse, formatWebhookError } from "../src/services/webhook";
+import { buildWebhookTestBody, deliveryStatusFromResponse, formatWebhookError } from "../src/services/webhook";
+import { buildBackupObjectKey, backupRetentionCutoff } from "../src/services/backup";
 
 describe("password hashing", () => {
   it("verifies a valid PBKDF2 password and rejects a wrong password", async () => {
@@ -160,5 +161,25 @@ describe("webhook delivery helpers", () => {
     expect(formatWebhookError(new Error("boom"))).toBe("boom");
     expect(formatWebhookError("bad gateway")).toBe("bad gateway");
     expect(formatWebhookError(null)).toBe("Unknown webhook error");
+  });
+
+  it("builds a test webhook event body", () => {
+    expect(JSON.parse(buildWebhookTestBody(123))).toMatchObject({
+      event: "webhook.test",
+      timestamp: 123,
+      payload: { ok: true, source: "memos-worker" }
+    });
+  });
+});
+
+describe("backup helpers", () => {
+  it("builds stable dated backup object keys", () => {
+    expect(buildBackupObjectKey(new Date("2026-05-21T07:30:15.000Z"))).toBe(
+      "backups/memos-2026-05-21T07-30-15-000Z.json"
+    );
+  });
+
+  it("calculates retention cutoff in seconds", () => {
+    expect(backupRetentionCutoff(1_000_000, 7)).toBe(395_200);
   });
 });

@@ -46,11 +46,12 @@ interface MemoCardProps {
   currentUser: CurrentUser | null;
   onUpdate?: (memo: Memo) => void;
   onRemove?: (uid: string) => void;
+  highlight?: string;
 }
 
 const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
 
-export function MemoCard({ memo, currentUser, onUpdate, onRemove }: MemoCardProps) {
+export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = "" }: MemoCardProps) {
   const { notify, confirm } = useFeedback();
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(memo.content);
@@ -309,7 +310,7 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove }: MemoCardProp
           </div>
         </div>
       ) : (
-        <MarkdownContent content={memo.content} />
+        <MarkdownContent content={memo.content} highlight={highlight} />
       )}
 
       <AttachmentList attachments={memo.attachments} />

@@ -3,6 +3,7 @@ import { api } from "../api";
 import { useFeedback } from "./Feedback";
 import { clearEditorDraft, loadEditorDraft, saveEditorDraft } from "../editorDraft";
 import type { MemoVisibility } from "../memoQuery";
+import { applyMemoTemplate, MEMO_TEMPLATES, type MemoTemplate } from "../memoTemplates";
 
 interface Attachment { uid: string; filename: string; }
 interface MemoEditorProps { onCreated: (memo: unknown) => void; }
@@ -57,6 +58,10 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
 
   const visLabel = { PRIVATE: "私有", PROTECTED: "登录可见", PUBLIC: "公开" };
 
+  const insertTemplate = (templateId: MemoTemplate["id"]) => {
+    setContent((value) => applyMemoTemplate(value, templateId));
+  };
+
   return (
     <div class="editor-card">
       <div class="editor-header">
@@ -73,6 +78,19 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         onInput={(e) => setContent((e.target as HTMLTextAreaElement).value)}
         onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit(); }}
       />
+
+      <div class="template-bar" aria-label="备忘录模板">
+        {MEMO_TEMPLATES.map((template) => (
+          <button
+            key={template.id}
+            type="button"
+            class="template-chip"
+            onClick={() => insertTemplate(template.id)}
+          >
+            {template.label}
+          </button>
+        ))}
+      </div>
 
       <div class="editor-actions">
         <div class="visibility-segment" aria-label="可见性">

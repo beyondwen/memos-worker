@@ -27,3 +27,6 @@ new_sqlite_classes = ["SSEHub"]
 
 [vars]
 ENVIRONMENT = "production"
+
+[triggers]
+crons = ["0 18 * * *"]

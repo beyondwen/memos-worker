@@ -83,6 +83,28 @@ export async function retryWebhookDelivery(env: Env, viewer: Viewer, deliveryId:
   return json({ delivery: retried ? publicWebhookDelivery({ ...retried, webhook_name: delivery.webhook_name, webhook_url: delivery.webhook_url }) : null });
 }
 
+export async function testWebhook(env: Env, viewer: Viewer, webhookId: string): Promise<Response> {
+  const id = Number(webhookId);
+  if (!Number.isFinite(id)) return json({ error: "Invalid webhook ID" }, 400);
+
+  const webhook = await env.DB.prepare("SELECT id, creator_id, name, url FROM webhook WHERE id = ? AND creator_id = ?")
+    .bind(id, viewer.id)
+    .first<{ id: number; creator_id: number; name: string; url: string }>();
+  if (!webhook) return json({ error: "Webhook not found" }, 404);
+
+  const delivery = await sendAndRecordWebhook(env, {
+    webhookId: webhook.id,
+    creatorId: webhook.creator_id,
+    url: webhook.url,
+    event: "webhook.test",
+    requestBody: buildWebhookTestBody(unixNow())
+  });
+
+  return json({
+    delivery: delivery ? publicWebhookDelivery({ ...delivery, webhook_name: webhook.name, webhook_url: webhook.url }) : null
+  }, 201);
+}
+
 export async function createWebhook(request: Request, env: Env, viewer: Viewer): Promise<Response> {
   const body = await readJson<{ name?: string; url?: string }>(request);
   const name = String(body.name ?? "").trim();
@@ -160,6 +182,17 @@ export function formatWebhookError(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error.trim();
   return "Unknown webhook error";
+}
+
+export function buildWebhookTestBody(timestamp: number): string {
+  return JSON.stringify({
+    event: "webhook.test",
+    timestamp,
+    payload: {
+      ok: true,
+      source: "memos-worker"
+    }
+  });
 }
 
 function publicWebhookDelivery(delivery: DbWebhookDelivery): Record<string, unknown> {

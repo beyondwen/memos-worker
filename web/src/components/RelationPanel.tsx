@@ -80,7 +80,8 @@ function RelationList({ title, relations }: { title: string; relations: MemoRela
             const uid = relation.memo.replace(/^memos\//, "");
             return (
               <button key={`${relation.direction}-${relation.memo}`} class="relation-chip" onClick={() => route(`/memos/${uid}`)}>
-                {uid}
+                <span>{uid}</span>
+                {relation.content && <small>{relation.content.slice(0, 48)}</small>}
               </button>
             );
           })}

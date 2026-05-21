@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "preact/hooks";
+import { useState, useEffect, useCallback, useRef } from "preact/hooks";
 import { api, getToken } from "../api";
 import { MemoCard } from "./MemoCard";
 import type { Memo } from "./MemoCard";
@@ -45,6 +45,7 @@ export function MemoList({
   const [selectedUids, setSelectedUids] = useState<Set<string>>(() => new Set());
   const [bulkVisibility, setBulkVisibility] = useState<MemoVisibility>("PRIVATE");
   const [bulkWorking, setBulkWorking] = useState(false);
+  const longPressTimer = useRef<number | null>(null);
   const { notify, confirm } = useFeedback();
 
   const buildUrl = useCallback(
@@ -193,6 +194,22 @@ export function MemoList({
     }
   }, [bulkVisibility, confirm, fetchMemos, notify, selectedUids]);
 
+  const startLongPressSelect = useCallback((memo: Memo) => {
+    if (!currentUser || memo.creator.id !== currentUser.id) return;
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = window.setTimeout(() => {
+      toggleSelected(memo.uid, true);
+      notify("已进入批量选择", "info");
+    }, 520);
+  }, [currentUser, notify, toggleSelected]);
+
+  const cancelLongPressSelect = useCallback(() => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
   return (
     <div class="memo-list">
       {selectableUids.length > 0 && (
@@ -252,7 +269,14 @@ export function MemoList({
       )}
 
       {memos.map((memo) => (
-        <div key={memo.uid} class={`memo-list-item${selectedUids.has(memo.uid) ? " selected" : ""}`}>
+        <div
+          key={memo.uid}
+          class={`memo-list-item${selectedUids.has(memo.uid) ? " selected" : ""}`}
+          onTouchStart={() => startLongPressSelect(memo)}
+          onTouchEnd={cancelLongPressSelect}
+          onTouchMove={cancelLongPressSelect}
+          onTouchCancel={cancelLongPressSelect}
+        >
           {currentUser && memo.creator.id === currentUser.id && (
             <label class="memo-select">
               <input
@@ -268,6 +292,7 @@ export function MemoList({
             currentUser={currentUser}
             onUpdate={handleMemoUpdate}
             onRemove={handleMemoRemove}
+            highlight={search}
           />
         </div>
       ))}
