@@ -20,6 +20,7 @@ const ACCESS_TTL: i64 = 15 * 60;
 const REFRESH_TTL: i64 = 30 * 24 * 60 * 60;
 const MIGRATION_PAGE_SIZE: usize = 100;
 const MIGRATION_MAX_MEMOS: usize = 10000;
+const SQL_IN_CHUNK_SIZE: usize = 50;
 
 #[derive(Debug)]
 struct AppError {
@@ -1292,19 +1293,23 @@ async fn existing_imported_original_names(env: &Env, creator_id: i64, memos: &[O
     if names.is_empty() {
         return Ok(BTreeSet::new());
     }
-    let mut values = vec![js_num(creator_id)];
-    values.extend(names.iter().map(|name| name.clone().into()));
-    let rows = db(env)?.prepare(format!(
-        "SELECT json_extract(payload, '$.source.originalName') AS original_name FROM memo WHERE creator_id = ? AND json_extract(payload, '$.source.type') = 'usememos' AND json_extract(payload, '$.source.originalName') IN ({})",
-        placeholders(names.len())
-    ))
-        .bind(&values)?
-        .all()
-        .await?;
-    let values: Vec<Value> = rows.results()?;
-    Ok(values.into_iter()
-        .filter_map(|row| row.get("original_name").and_then(Value::as_str).map(ToString::to_string))
-        .collect())
+    let mut existing = BTreeSet::new();
+    let names: Vec<String> = names.into_iter().collect();
+    for chunk in names.chunks(SQL_IN_CHUNK_SIZE) {
+        let mut values = vec![js_num(creator_id)];
+        values.extend(chunk.iter().map(|name| name.clone().into()));
+        let rows = db(env)?.prepare(format!(
+            "SELECT json_extract(payload, '$.source.originalName') AS original_name FROM memo WHERE creator_id = ? AND json_extract(payload, '$.source.type') = 'usememos' AND json_extract(payload, '$.source.originalName') IN ({})",
+            placeholders(chunk.len())
+        ))
+            .bind(&values)?
+            .all()
+            .await?;
+        let values: Vec<Value> = rows.results()?;
+        existing.extend(values.into_iter()
+            .filter_map(|row| row.get("original_name").and_then(Value::as_str).map(ToString::to_string)));
+    }
+    Ok(existing)
 }
 
 async fn has_imported_original_memo(env: &Env, creator_id: i64, original_name: &str) -> std::result::Result<bool, AppError> {
