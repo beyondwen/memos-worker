@@ -43,17 +43,20 @@ export function MemoActions({
       )}
       {isOwner && archived && (
         <>
-          <button class="memo-action-icon" title="恢复" aria-label="恢复" onClick={onRestore}>
+          <button class="memo-action-icon memo-action-labeled" title="恢复" aria-label="恢复" onClick={onRestore}>
             <span aria-hidden="true">↺</span>
+            <span>恢复</span>
           </button>
-          <button class="memo-action-icon danger" title="彻底删除" aria-label="彻底删除" onClick={onDelete}>
+          <button class="memo-action-icon memo-action-labeled danger" title="彻底删除" aria-label="彻底删除" onClick={onDelete}>
             <span aria-hidden="true">×</span>
+            <span>彻底删除</span>
           </button>
         </>
       )}
       {isOwner && !archived && (
-        <button class="memo-action-icon danger" title="删除" aria-label="删除" onClick={onArchive}>
+        <button class="memo-action-icon memo-action-labeled danger" title="删除" aria-label="删除" onClick={onArchive}>
           <span aria-hidden="true">×</span>
+          <span>删除</span>
         </button>
       )}
       <button class="memo-action-icon" title="表态" aria-label="表态" onClick={onReact}>

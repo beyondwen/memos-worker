@@ -20,7 +20,7 @@ interface MemoDetailPageProps {
 const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
 
 export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
-  const { notify } = useFeedback();
+  const { notify, confirm } = useFeedback();
   const [memo, setMemo] = useState<Memo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -91,11 +91,64 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         // Ignore malformed SSE payloads.
       }
     };
-    for (const type of ["memo.updated", "memo.deleted", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {
+    for (const type of ["memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {
       source.addEventListener(type, refresh);
     }
     return () => source.close();
   }, [currentUser, fetchComments, fetchMemo, fetchReactions, uid]);
+
+  const handleArchive = async () => {
+    if (!memo) return;
+    const ok = await confirm({
+      title: "删除这条备忘录？",
+      message: "会移入回收站，之后可以恢复或彻底删除。",
+      confirmText: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const data = await api<{ memo: Memo }>(`/api/v1/memos/${memo.uid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ rowStatus: "ARCHIVED" }),
+      });
+      setMemo(data.memo);
+      notify("备忘录已删除到回收站", "success");
+    } catch (err) {
+      notify(`删除失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!memo) return;
+    try {
+      const data = await api<{ memo: Memo }>(`/api/v1/memos/${memo.uid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ rowStatus: "NORMAL" }),
+      });
+      setMemo(data.memo);
+      notify("备忘录已恢复", "success");
+    } catch (err) {
+      notify(`恢复失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handlePurge = async () => {
+    if (!memo) return;
+    const ok = await confirm({
+      title: "彻底删除这条备忘录？",
+      message: "这会永久移除备忘录，附件会解绑但不会一并删除。",
+      confirmText: "彻底删除",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/api/v1/memos/${memo.uid}?purge=true`, { method: "DELETE" });
+      notify("备忘录已彻底删除", "success");
+      route("/");
+    } catch (err) {
+      notify(`彻底删除失败：${(err as Error).message}`, "error");
+    }
+  };
 
   const handleAddComment = async () => {
     if (!uid || !commentContent.trim()) return;
@@ -199,6 +252,9 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
     );
   }
 
+  const isOwner = currentUser?.id === memo.creator.id;
+  const isArchived = memo.rowStatus === "ARCHIVED";
+
   return (
     <div class="memo-detail-page">
       <div class="home-toolbar page-toolbar">
@@ -207,13 +263,31 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
           <h1>备忘录详情</h1>
           <p>{formatDate(memo.createdTs)}</p>
         </div>
-        <a
-          href="/"
-          class="tag-clear"
-          onClick={(e) => { e.preventDefault(); route("/"); }}
-        >
-          返回首页
-        </a>
+        <div class="detail-toolbar-actions">
+          {isOwner && (
+            isArchived ? (
+              <>
+                <button class="btn btn-secondary btn-sm" onClick={handleRestore}>
+                  恢复
+                </button>
+                <button class="btn btn-danger btn-sm" onClick={handlePurge}>
+                  彻底删除
+                </button>
+              </>
+            ) : (
+              <button class="btn btn-danger btn-sm" onClick={handleArchive}>
+                删除
+              </button>
+            )
+          )}
+          <a
+            href="/"
+            class="tag-clear"
+            onClick={(e) => { e.preventDefault(); route("/"); }}
+          >
+            返回首页
+          </a>
+        </div>
       </div>
 
       <div class="memo-card">

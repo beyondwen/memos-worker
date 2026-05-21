@@ -47,12 +47,24 @@ interface MemoCardProps {
   currentUser: CurrentUser | null;
   onUpdate?: (memo: Memo) => void;
   onRemove?: (uid: string) => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onSelect?: (uid: string, checked: boolean) => void;
   highlight?: string;
 }
 
 const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
 
-export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = "" }: MemoCardProps) {
+export function MemoCard({
+  memo,
+  currentUser,
+  onUpdate,
+  onRemove,
+  selectionMode = false,
+  selected = false,
+  onSelect,
+  highlight = "",
+}: MemoCardProps) {
   const { notify, confirm } = useFeedback();
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(memo.content);
@@ -275,6 +287,10 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
   const openDetail = () => route(`/memos/${memo.uid}`);
 
   const handleCardClick = (event: MouseEvent) => {
+    if (selectionMode && isOwner && shouldOpenMemoDetailFromCardClick(event.target, editing)) {
+      onSelect?.(memo.uid, !selected);
+      return;
+    }
     if (shouldOpenMemoDetailFromCardClick(event.target, editing)) openDetail();
   };
 
@@ -283,6 +299,10 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
     if (event.key !== "Enter" && event.key !== " ") return;
     if (!shouldOpenMemoDetailFromCardClick(event.target, false)) return;
     event.preventDefault();
+    if (selectionMode && isOwner) {
+      onSelect?.(memo.uid, !selected);
+      return;
+    }
     openDetail();
   };
 
@@ -292,7 +312,8 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
   return (
     <div
       class={`memo-card${editing ? "" : " clickable"}`}
-      role={editing ? undefined : "link"}
+      role={editing ? undefined : selectionMode && isOwner ? "button" : "link"}
+      aria-pressed={selectionMode && isOwner ? selected : undefined}
       tabIndex={editing ? undefined : 0}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
@@ -423,21 +444,23 @@ export function MemoCard({ memo, currentUser, onUpdate, onRemove, highlight = ""
         </div>
       )}
 
-      <MemoActions
-        isOwner={isOwner}
-        archived={memo.rowStatus === "ARCHIVED"}
-        editing={editing}
-        pinned={memo.pinned}
-        commentCount={commentsLoaded ? comments.length : 0}
-        onEdit={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}
-        onPin={handleTogglePinned}
-        onArchive={handleArchive}
-        onRestore={handleRestore}
-        onDelete={handlePurge}
-        onReact={handleToggleReactions}
-        onComments={handleToggleComments}
-        onShare={handleShare}
-      />
+      {!selectionMode && (
+        <MemoActions
+          isOwner={isOwner}
+          archived={memo.rowStatus === "ARCHIVED"}
+          editing={editing}
+          pinned={memo.pinned}
+          commentCount={commentsLoaded ? comments.length : 0}
+          onEdit={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}
+          onPin={handleTogglePinned}
+          onArchive={handleArchive}
+          onRestore={handleRestore}
+          onDelete={handlePurge}
+          onReact={handleToggleReactions}
+          onComments={handleToggleComments}
+          onShare={handleShare}
+        />
+      )}
     </div>
   );
 }

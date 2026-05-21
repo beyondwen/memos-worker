@@ -35,6 +35,7 @@ function AppContent() {
   const { notify } = useFeedback();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [authLoaded, setAuthLoaded] = useState(false);
+  const [activePath, setActivePath] = useState(() => currentRoutePath());
 
   const checkAuth = useCallback(async () => {
     try {
@@ -86,8 +87,8 @@ function AppContent() {
 
   return (
     <>
-      <Header currentUser={currentUser} onLogout={handleLogout} />
-      <Router>
+      <Header currentUser={currentUser} onLogout={handleLogout} activePath={activePath} />
+      <Router onChange={(event) => setActivePath(event.url)}>
         <Home path="/" currentUser={currentUser} />
         <AuthPage
           path="/auth"

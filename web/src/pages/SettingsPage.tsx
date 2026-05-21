@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
-import { api } from "../api";
+import { api, apiFetch } from "../api";
 import { useFeedback } from "../components/Feedback";
 import { normalizeWebhookForm } from "../integrationHelpers";
 import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../webhookDeliveryView";
@@ -93,6 +93,12 @@ interface MigrationResult extends MigrationPreview {
   skipped: number;
 }
 
+interface MigrationProgress extends MigrationResult {
+  phase: "fetching" | "importing" | "done";
+  processed: number;
+  state?: string;
+}
+
 interface AiSettings {
   baseUrl: string;
   model: string;
@@ -126,6 +132,19 @@ const SETTINGS_TABS: Array<{
   { id: "maintenance", label: "维护", description: "附件清理" },
   { id: "audit", label: "审计", description: "操作记录", adminOnly: true },
 ];
+
+function parseMigrationStreamEvent(raw: string): { name: string; data: unknown } {
+  let name = "message";
+  const dataLines: string[] = [];
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) name = line.slice("event:".length).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trim());
+  }
+  return {
+    name,
+    data: JSON.parse(dataLines.join("\n") || "{}"),
+  };
+}
 
 export function SettingsPage({ currentUser }: SettingsPageProps) {
   const { notify, confirm } = useFeedback();
@@ -164,6 +183,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [migrationIncludeArchived, setMigrationIncludeArchived] = useState(false);
   const [migrationPreview, setMigrationPreview] = useState<MigrationPreview | null>(null);
   const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
+  const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
   const [migrationPreviewing, setMigrationPreviewing] = useState(false);
   const [migrationImporting, setMigrationImporting] = useState(false);
   const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
@@ -554,6 +574,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const handlePreviewMigration = async () => {
     setMigrationPreviewing(true);
     setMigrationResult(null);
+    setMigrationProgress(null);
     try {
       const data = await api<{ preview: MigrationPreview }>("/api/v1/migration/memos/preview", {
         method: "POST",
@@ -580,22 +601,79 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     });
     if (!ok) return;
     setMigrationImporting(true);
+    setMigrationResult(null);
+    setMigrationProgress({
+      phase: "fetching",
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      memoCount: 0,
+      attachmentCount: 0,
+      relationCount: 0,
+      archivedCount: 0,
+      truncated: false,
+    });
     try {
-      const data = await api<{ result: MigrationResult }>("/api/v1/migration/memos/import", {
-        method: "POST",
-        body: JSON.stringify(migrationPayload()),
+      const result = await runMigrationStream("/api/v1/migration/memos/import-stream", migrationPayload(), (progress) => {
+        setMigrationProgress(progress);
       });
-      setMigrationResult(data.result);
-      setMigrationPreview(data.result);
+      setMigrationProgress(result);
+      setMigrationResult(result);
+      setMigrationPreview(result);
       await fetchTags();
       await fetchAuditLogs();
       await fetchOverview();
-      notify(`已导入 ${data.result.imported} 条，跳过 ${data.result.skipped} 条`, "success");
+      notify(`已导入 ${result.imported} 条，跳过 ${result.skipped} 条`, "success");
     } catch (err) {
       notify(`迁移失败：${(err as Error).message}`, "error");
     } finally {
       setMigrationImporting(false);
     }
+  };
+
+  const runMigrationStream = async (
+    path: string,
+    payload: ReturnType<typeof migrationPayload>,
+    onProgress: (progress: MigrationProgress) => void
+  ): Promise<MigrationProgress> => {
+    const response = await apiFetch(path, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${response.status}`);
+    }
+    if (!response.body) throw new Error("浏览器不支持读取迁移进度");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalResult: MigrationProgress | null = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const rawEvent = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = parseMigrationStreamEvent(rawEvent);
+        if (event.name === "error") {
+          throw new Error(String((event.data as { error?: string }).error || "迁移失败"));
+        }
+        if (event.name === "progress" || event.name === "done") {
+          const progress = event.data as MigrationProgress;
+          onProgress(progress);
+          if (event.name === "done") finalResult = progress;
+        }
+        boundary = buffer.indexOf("\n\n");
+      }
+      if (done) break;
+    }
+
+    if (!finalResult) throw new Error("迁移进度流提前结束");
+    return finalResult;
   };
 
   const handleDeleteAttachment = async (attachment: Attachment) => {
@@ -717,6 +795,22 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     });
 
   const attachmentSummary = attachmentCleanupSummary(unattachedAttachments);
+  const migrationBusy = migrationPreviewing || migrationImporting;
+  const migrationProgressVisible = migrationBusy || !!migrationProgress;
+  const migrationKnownTotal = migrationPreview?.memoCount || 0;
+  const migrationProgressPercent = migrationProgress && migrationKnownTotal > 0
+    ? Math.min(100, Math.round((migrationProgress.processed / migrationKnownTotal) * 100))
+    : null;
+  const migrationProgressTitle = migrationPreviewing
+    ? "正在预检源数据"
+    : migrationProgress?.phase === "done"
+      ? "迁移完成"
+      : "正在迁移备忘录";
+  const migrationProgressDetail = migrationPreviewing
+    ? "正在读取原版 Memos 列表和元信息"
+    : migrationProgress
+      ? `已处理 ${migrationProgress.processed}${migrationKnownTotal ? ` / ${migrationKnownTotal}` : ""} 条，导入 ${migrationProgress.imported} 条，跳过 ${migrationProgress.skipped} 条`
+      : "正在拉取并导入，完成后显示导入和跳过数量";
 
   return (
     <div class="settings-layout">
@@ -1116,6 +1210,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
                   setMigrationBaseUrl((e.target as HTMLInputElement).value);
                   setMigrationPreview(null);
                   setMigrationResult(null);
+                  setMigrationProgress(null);
                 }}
               />
             </div>
@@ -1130,6 +1225,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
                   setMigrationToken((e.target as HTMLInputElement).value);
                   setMigrationPreview(null);
                   setMigrationResult(null);
+                  setMigrationProgress(null);
                 }}
                 autoComplete="off"
               />
@@ -1142,6 +1238,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
                   setMigrationIncludeArchived((e.target as HTMLInputElement).checked);
                   setMigrationPreview(null);
                   setMigrationResult(null);
+                  setMigrationProgress(null);
                 }}
               />
               <span>包含归档内容</span>
@@ -1163,6 +1260,35 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
               {migrationImporting ? "迁移中..." : "开始迁移"}
             </button>
           </div>
+          {migrationProgressVisible && (
+            <div
+              class="migration-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={migrationKnownTotal || undefined}
+              aria-valuenow={migrationProgressPercent ?? undefined}
+              aria-valuetext={migrationProgressDetail}
+            >
+              <div class="migration-progress-track" aria-hidden="true">
+                <div
+                  class={`migration-progress-fill${migrationProgressPercent !== null ? " determinate" : ""}`}
+                  style={migrationProgressPercent !== null ? { width: `${migrationProgressPercent}%` } : undefined}
+                />
+              </div>
+              <div class="migration-progress-text">
+                <strong>{migrationProgressTitle}</strong>
+                <span>{migrationProgressDetail}</span>
+              </div>
+              {migrationProgress && (
+                <div class="migration-progress-stats">
+                  <span>已处理 {migrationProgress.processed}</span>
+                  <span>已导入 {migrationProgress.imported}</span>
+                  <span>已跳过 {migrationProgress.skipped}</span>
+                  <span>已读取 {migrationProgress.memoCount}</span>
+                </div>
+              )}
+            </div>
+          )}
           {(migrationPreview || migrationResult) && (
             <div class="migration-summary">
               <span>备忘录 {migrationPreview?.memoCount ?? migrationResult?.memoCount}</span>

@@ -314,45 +314,43 @@ export async function bulkUpdateMemos(request: Request, env: Env, viewer: Viewer
   if (action === "VISIBILITY" && !visibility) return json({ error: "Invalid visibility" }, 400);
 
   const result = { updated: 0, deleted: 0, skipped: 0 };
-  const touched: DbMemo[] = [];
+  const placeholders = sqlPlaceholders(memoUids.length);
+  const permissionSql = viewer.role === "ADMIN" ? "" : " AND creator_id = ?";
+  const permissionParams = viewer.role === "ADMIN" ? [] : [viewer.id];
+  const rows = await env.DB.prepare(`
+    SELECT memo.*, "user".username AS creator_username, "user".nickname AS creator_nickname
+    FROM memo
+    JOIN "user" ON "user".id = memo.creator_id
+    WHERE memo.uid IN (${placeholders})${permissionSql}
+  `).bind(...memoUids, ...permissionParams).all<DbMemo>();
+  const touched = rows.results;
+  const ids = touched.map((memo) => memo.id);
+  result.skipped = memoUids.length - touched.length;
 
-  for (const uid of memoUids) {
-    const memo = await getMemoByUid(env, uid);
-    if (!memo || !canWriteMemo(memo, viewer)) {
-      result.skipped += 1;
-      continue;
-    }
-
+  if (ids.length > 0) {
+    const idPlaceholders = sqlPlaceholders(ids.length);
+    const now = unixNow();
     if (action === "DELETE") {
-      await purgeMemoRecord(env, memo);
-      result.deleted += 1;
-      touched.push(memo);
-      await broadcastMemo(env, "memo.deleted", memo);
-      continue;
-    }
-
-    if (action === "ARCHIVE") {
-      await archiveMemoRecord(env, memo);
+      await purgeMemoRecords(env, ids, now);
+      result.deleted = ids.length;
+    } else if (action === "ARCHIVE") {
+      await env.DB.prepare(`UPDATE memo SET row_status = 'ARCHIVED', updated_ts = ? WHERE id IN (${idPlaceholders})`)
+        .bind(now, ...ids)
+        .run();
+      result.updated = ids.length;
     } else if (action === "RESTORE") {
-      await restoreMemoRecord(env, memo);
+      await env.DB.prepare(`UPDATE memo SET row_status = 'NORMAL', updated_ts = ? WHERE id IN (${idPlaceholders})`)
+        .bind(now, ...ids)
+        .run();
+      result.updated = ids.length;
     } else if (action === "VISIBILITY" && visibility) {
-      await setMemoVisibility(env, memo, visibility);
+      await env.DB.prepare(`UPDATE memo SET visibility = ?, updated_ts = ? WHERE id IN (${idPlaceholders})`)
+        .bind(visibility, now, ...ids)
+        .run();
+      result.updated = ids.length;
     }
 
-    const updated = await getMemoByUid(env, uid);
-    if (updated) {
-      result.updated += 1;
-      touched.push(updated);
-      const eventType: SseEvent["type"] = action === "ARCHIVE"
-        ? "memo.archived"
-        : action === "RESTORE"
-          ? "memo.restored"
-          : "memo.updated";
-      await broadcastMemo(env, eventType, updated);
-    }
-  }
-
-  if (touched.length > 0) {
+    await broadcastMemo(env, "memo.bulk.updated", touched[0]);
     await fireWebhooks(env, viewer.id, "memo.bulk.updated", {
       action,
       memoUids: touched.map((memo) => memo.uid),
@@ -398,6 +396,30 @@ async function purgeMemoRecord(env: Env, memo: DbMemo): Promise<void> {
   await env.DB.prepare("DELETE FROM memo WHERE id = ?")
     .bind(memo.id)
     .run();
+}
+
+async function purgeMemoRecords(env: Env, memoIds: number[], now = unixNow()): Promise<void> {
+  if (memoIds.length === 0) return;
+  const placeholders = sqlPlaceholders(memoIds.length);
+  await env.DB.prepare(`UPDATE attachment SET memo_id = NULL, updated_ts = ? WHERE memo_id IN (${placeholders})`)
+    .bind(now, ...memoIds)
+    .run();
+  await env.DB.prepare(`DELETE FROM reaction WHERE content_type = 'MEMO' AND content_id IN (${placeholders})`)
+    .bind(...memoIds)
+    .run();
+  await env.DB.prepare(`DELETE FROM memo_share WHERE memo_id IN (${placeholders})`)
+    .bind(...memoIds)
+    .run();
+  await env.DB.prepare(`DELETE FROM memo_relation WHERE memo_id IN (${placeholders}) OR related_memo_id IN (${placeholders})`)
+    .bind(...memoIds, ...memoIds)
+    .run();
+  await env.DB.prepare(`DELETE FROM memo WHERE id IN (${placeholders})`)
+    .bind(...memoIds)
+    .run();
+}
+
+function sqlPlaceholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(",");
 }
 
 export async function exportData(env: Env, viewer: Viewer): Promise<Response> {

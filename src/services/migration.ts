@@ -39,6 +39,14 @@ export interface MigrationSummary {
   truncated: boolean;
 }
 
+export interface MigrationProgress extends MigrationSummary {
+  phase: "fetching" | "importing" | "done";
+  processed: number;
+  imported: number;
+  skipped: number;
+  state?: string;
+}
+
 export interface ImportedOriginalMemo {
   uid: string;
   creatorId: number;
@@ -193,6 +201,39 @@ export async function importOriginalMemos(request: Request, env: Env, viewer: Vi
   return json({ result });
 }
 
+export async function importOriginalMemosStream(request: Request, env: Env, viewer: Viewer): Promise<Response> {
+  if (viewer.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
+  const options = await readMigrationRequest(request);
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const send = async (event: string, data: unknown): Promise<void> => {
+    await writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  };
+
+  void (async () => {
+    try {
+      const result = await importOriginalMemosWithProgress(options, env, viewer, async (progress) => {
+        await send("progress", progress);
+      });
+      await send("done", result);
+    } catch (error) {
+      await send("error", { error: error instanceof Error ? error.message : "Migration failed" }).catch(() => undefined);
+    } finally {
+      await writer.close().catch(() => undefined);
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no"
+    }
+  });
+}
+
 async function readMigrationRequest(request: Request): Promise<Required<MigrationRequest>> {
   const body = await readJson<MigrationRequest>(request);
   const baseUrl = normalizeMemosBaseUrl(String(body.baseUrl ?? ""));
@@ -243,6 +284,116 @@ async function fetchOriginalMemos(options: Required<MigrationRequest>): Promise<
   }
 
   return { memos: all, truncated };
+}
+
+async function importOriginalMemosWithProgress(
+  options: Required<MigrationRequest>,
+  env: Env,
+  viewer: Viewer,
+  onProgress: (progress: MigrationProgress) => Promise<void>
+): Promise<MigrationProgress> {
+  const states = options.includeArchived ? ["NORMAL", "ARCHIVED"] : ["NORMAL"];
+  const progress: MigrationProgress = {
+    phase: "fetching",
+    processed: 0,
+    imported: 0,
+    skipped: 0,
+    memoCount: 0,
+    attachmentCount: 0,
+    relationCount: 0,
+    archivedCount: 0,
+    truncated: false
+  };
+
+  await onProgress({ ...progress });
+
+  for (const state of states) {
+    let pageToken = "";
+    do {
+      progress.phase = "fetching";
+      progress.state = state;
+      await onProgress({ ...progress });
+
+      const url = new URL(`${options.baseUrl}/api/v1/memos`);
+      url.searchParams.set("pageSize", String(PAGE_SIZE));
+      url.searchParams.set("state", state);
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+      const response = await fetch(url.toString(), {
+        headers: {
+          "Accept": "application/json",
+          "Authorization": `Bearer ${options.accessToken}`
+        }
+      });
+      if (!response.ok) {
+        throw new HttpError(`Original Memos API returned HTTP ${response.status}`, 400);
+      }
+
+      const data = await response.json() as { memos?: OriginalMemo[]; nextPageToken?: string };
+      const memos = Array.isArray(data.memos) ? data.memos : [];
+      progress.phase = "importing";
+
+      for (const originalMemo of memos) {
+        if (progress.memoCount >= MAX_MEMOS) {
+          progress.truncated = true;
+          break;
+        }
+
+        progress.memoCount += 1;
+        progress.attachmentCount += Array.isArray(originalMemo.attachments) ? originalMemo.attachments.length : 0;
+        progress.relationCount += Array.isArray(originalMemo.relations) ? originalMemo.relations.length : 0;
+        if (normalizeOriginalState(originalMemo.state) === "ARCHIVED") progress.archivedCount += 1;
+
+        const imported = await importSingleOriginalMemo(env, viewer, originalMemo);
+        if (imported) progress.imported += 1;
+        else progress.skipped += 1;
+        progress.processed += 1;
+        await onProgress({ ...progress });
+      }
+
+      if (progress.truncated) break;
+      pageToken = String(data.nextPageToken ?? "");
+    } while (pageToken);
+    if (progress.truncated) break;
+  }
+
+  progress.phase = "done";
+  await recordAudit(env, viewer, "migration.usememos.import", "usememos", {
+    baseUrl: options.baseUrl,
+    imported: progress.imported,
+    skipped: progress.skipped,
+    memoCount: progress.memoCount,
+    attachmentCount: progress.attachmentCount,
+    relationCount: progress.relationCount,
+    archivedCount: progress.archivedCount,
+    truncated: progress.truncated
+  });
+  await onProgress({ ...progress });
+  return progress;
+}
+
+async function importSingleOriginalMemo(env: Env, viewer: Viewer, originalMemo: OriginalMemo): Promise<boolean> {
+  const mapped = mapOriginalMemoToImport(originalMemo, viewer.id);
+  if (!mapped.content) return false;
+  if (mapped.originalName && await hasImportedOriginalMemo(env, viewer.id, mapped.originalName)) {
+    return false;
+  }
+
+  await env.DB.prepare(`
+    INSERT INTO memo (uid, creator_id, created_ts, updated_ts, row_status, content, visibility, pinned, payload)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    mapped.uid,
+    mapped.creatorId,
+    mapped.createdTs,
+    mapped.updatedTs,
+    mapped.rowStatus,
+    mapped.content,
+    mapped.visibility,
+    mapped.pinned,
+    JSON.stringify(mapped.payload)
+  ).run();
+  return true;
 }
 
 async function hasImportedOriginalMemo(env: Env, creatorId: number, originalName: string): Promise<boolean> {

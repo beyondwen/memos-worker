@@ -2,19 +2,25 @@ import { useCallback, useEffect, useState } from "preact/hooks";
 import { route } from "preact-router";
 import { api, getToken } from "../api";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
+import { isHeaderNavActive } from "../headerNav";
 import type { CurrentUser } from "../App";
 
 interface HeaderProps {
   currentUser: CurrentUser | null;
   onLogout: () => void;
+  activePath: string;
 }
 
-export function Header({ currentUser, onLogout }: HeaderProps) {
+export function Header({ currentUser, onLogout, activePath }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [localActivePath, setLocalActivePath] = useState(activePath);
   const [unreadCount, setUnreadCount] = useState(0);
-  const p = typeof window !== "undefined" ? window.location.pathname : "";
   const displayName = currentUser?.nickname || currentUser?.username || "";
   const avatarInitial = displayName.trim().charAt(0).toUpperCase() || "M";
+
+  useEffect(() => {
+    setLocalActivePath(activePath);
+  }, [activePath]);
 
   const refreshInbox = useCallback(async () => {
     if (!currentUser) {
@@ -55,8 +61,13 @@ export function Header({ currentUser, onLogout }: HeaderProps) {
   const nav = (href: string, label: string, badge?: number) => (
     <a
       href={href}
-      class={p === href ? "active" : ""}
-      onClick={(e) => { e.preventDefault(); route(href); setMenuOpen(false); }}
+      class={isHeaderNavActive(localActivePath, href) ? "active" : ""}
+      onClick={(e) => {
+        e.preventDefault();
+        setLocalActivePath(href);
+        route(href);
+        setMenuOpen(false);
+      }}
     >
       {label}
       {!!badge && <span class="nav-badge">{badge > 99 ? "99+" : badge}</span>}
@@ -65,7 +76,7 @@ export function Header({ currentUser, onLogout }: HeaderProps) {
 
   return (
     <header class="header">
-      <a href="/" class="header-logo" onClick={(e) => { e.preventDefault(); route("/"); }}>
+      <a href="/" class="header-logo" onClick={(e) => { e.preventDefault(); setLocalActivePath("/"); route("/"); }}>
         Memos
       </a>
 

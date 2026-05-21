@@ -22,6 +22,7 @@ import { buildSearchSnippet, scoreSearchMatch } from "../web/src/searchResultVie
 import { attachmentCleanupSummary } from "../web/src/attachmentCleanupView";
 import { buildHomeDateFilterPath, parseHomeDateFilterParams, stripHomeFilterParams } from "../web/src/homeFilters";
 import { shouldOpenMemoDetailFromCardClick } from "../web/src/cardClick";
+import { isHeaderNavActive } from "../web/src/headerNav";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -275,6 +276,13 @@ describe("bulk memo helpers", () => {
     });
   });
 
+  it("preserves all selected memo UIDs for bulk delete", () => {
+    expect(buildBulkMemoRequest("DELETE", ["m1", "m2", "m3"])).toEqual({
+      ok: true,
+      body: { action: "DELETE", memoUids: ["m1", "m2", "m3"] },
+    });
+  });
+
   it("requires a visibility for visibility bulk requests", () => {
     expect(buildBulkMemoRequest("VISIBILITY", ["m1"])).toEqual({
       ok: false,
@@ -300,6 +308,19 @@ describe("memo card click behavior", () => {
   it("keeps controls inside a memo card interactive", () => {
     expect(shouldOpenMemoDetailFromCardClick(target(true), false)).toBe(false);
     expect(shouldOpenMemoDetailFromCardClick(target(false), true)).toBe(false);
+  });
+});
+
+describe("header navigation state", () => {
+  it("matches the active top-level route", () => {
+    expect(isHeaderNavActive("/", "/")).toBe(true);
+    expect(isHeaderNavActive("/settings", "/settings")).toBe(true);
+    expect(isHeaderNavActive("/settings/profile", "/settings")).toBe(true);
+  });
+
+  it("does not keep home active for other routes", () => {
+    expect(isHeaderNavActive("/explore", "/")).toBe(false);
+    expect(isHeaderNavActive("/settings", "/")).toBe(false);
   });
 });
 

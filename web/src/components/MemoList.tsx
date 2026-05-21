@@ -298,6 +298,9 @@ export function MemoList({
             currentUser={currentUser}
             onUpdate={handleMemoUpdate}
             onRemove={handleMemoRemove}
+            selectionMode={selectedUids.size > 0}
+            selected={selectedUids.has(memo.uid)}
+            onSelect={toggleSelected}
             highlight={search}
           />
           {search && (

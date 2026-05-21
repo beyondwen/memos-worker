@@ -24,6 +24,23 @@ export async function api<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const response = await apiFetch(path, options);
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${response.status}`);
+  }
+
+  if (response.headers.get("Content-Type")?.includes("application/json")) {
+    return (await response.json()) as T;
+  }
+  return undefined as T;
+}
+
+export async function apiFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<Response> {
   const headers = new Headers(options.headers);
   if (!(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
@@ -45,15 +62,7 @@ export async function api<T = unknown>(
     }
   }
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${response.status}`);
-  }
-
-  if (response.headers.get("Content-Type")?.includes("application/json")) {
-    return (await response.json()) as T;
-  }
-  return undefined as T;
+  return response;
 }
 
 async function tryRefresh(): Promise<boolean> {

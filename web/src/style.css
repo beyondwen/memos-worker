@@ -752,6 +752,13 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   border: 1px solid transparent;
   font-size: 0.9rem !important; line-height: 1;
 }
+.memo-action-labeled {
+  gap: 4px;
+  min-width: auto;
+}
+.memo-action-labeled span:last-child {
+  font-size: 0.75rem;
+}
 .memo-action-icon:hover {
   border-color: #d8e2dc;
 }
@@ -759,6 +766,9 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   color: var(--danger);
   border-color: rgba(185,28,28,0.2);
   background: #fef2f2;
+}
+.detail-toolbar-actions {
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px;
 }
 .relation-editor { display: flex; flex-direction: column; gap: 8px; }
 .relation-heading {
@@ -1023,6 +1033,71 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   border: 1px solid #dbe5dd; border-radius: 999px;
   background: rgba(248,250,247,0.86);
   color: #315c45; font-size: 0.82rem; font-weight: 700;
+}
+.migration-progress {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dbe5dd;
+  border-radius: var(--radius-sm);
+  background: rgba(248,250,247,0.86);
+}
+.migration-progress-track {
+  position: relative;
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: #e7ece8;
+}
+.migration-progress-fill {
+  position: absolute;
+  top: 0;
+  left: -38%;
+  width: 38%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #315c45, #7c9885);
+  animation: migration-progress-slide 1.15s ease-in-out infinite;
+}
+.migration-progress-fill.determinate {
+  left: 0;
+  width: 0;
+  animation: none;
+  transition: width 0.2s ease;
+}
+.migration-progress-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 9px;
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+.migration-progress-text span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.migration-progress-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.migration-progress-stats span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid #dbe5dd;
+  border-radius: 999px;
+  background: var(--paper);
+  color: #315c45;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+@keyframes migration-progress-slide {
+  0% { left: -38%; }
+  55% { left: 44%; }
+  100% { left: 100%; }
 }
 .settings-tag-list {
   margin-bottom: 14px;
