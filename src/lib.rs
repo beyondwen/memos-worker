@@ -204,6 +204,17 @@ struct DbAuditLog {
     detail: String,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+struct DbInboxRow {
+    id: i64,
+    created_ts: i64,
+    sender_id: Option<i64>,
+    status: String,
+    message: String,
+    sender_username: Option<String>,
+    sender_nickname: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct Claims {
     iss: String,
@@ -408,13 +419,14 @@ async fn authed_route(
         return timeline(env, &viewer).await;
     }
     if path == "/api/v1/inbox" && method == Method::Get {
-        return json_response(json!({ "inbox": [], "unreadCount": 0 }), 200).map_err(AppError::from);
+        return list_inbox(env, &viewer).await;
     }
     if path == "/api/v1/inbox" && method == Method::Patch {
-        return json_response(json!({ "ok": true }), 200).map_err(AppError::from);
+        return update_inbox_status(req, env, &viewer).await;
     }
     if path.starts_with("/api/v1/inbox/") && method == Method::Delete {
-        return json_response(json!({ "ok": true }), 200).map_err(AppError::from);
+        let id = path.trim_start_matches("/api/v1/inbox/");
+        return delete_inbox_item(env, &viewer, id).await;
     }
     if path == "/api/v1/attachments" && method == Method::Get {
         return list_attachments(env, url, &viewer).await;
@@ -2045,6 +2057,72 @@ fn public_webhook_delivery(delivery: DbWebhookDelivery) -> Value {
     })
 }
 
+async fn list_inbox(env: &Env, viewer: &Viewer) -> std::result::Result<Response, AppError> {
+    let rows = db(env)?.prepare("SELECT inbox.*, \"user\".username AS sender_username, \"user\".nickname AS sender_nickname FROM inbox LEFT JOIN \"user\" ON \"user\".id = inbox.sender_id WHERE inbox.receiver_id = ? ORDER BY inbox.created_ts DESC LIMIT 100")
+        .bind(&[js_num(viewer.id)])?
+        .all()
+        .await?;
+    let inbox: Vec<DbInboxRow> = rows.results()?;
+    let unread_count: Option<i64> = db(env)?.prepare("SELECT COUNT(*) AS count FROM inbox WHERE receiver_id = ? AND status = 'UNREAD'")
+        .bind(&[js_num(viewer.id)])?
+        .first(Some("count"))
+        .await?;
+    let payload: Vec<Value> = inbox.into_iter().map(public_inbox_item).collect();
+    json_response(json!({ "inbox": payload, "unreadCount": unread_count.unwrap_or(0) }), 200).map_err(AppError::from)
+}
+
+async fn update_inbox_status(req: &mut Request, env: &Env, viewer: &Viewer) -> std::result::Result<Response, AppError> {
+    let body: Value = req.json().await.unwrap_or_else(|_| json!({}));
+    let status = if body.get("status").and_then(Value::as_str) == Some("READ") { "READ" } else { "UNREAD" };
+    let ids: Vec<i64> = body.get("ids")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_i64).filter(|id| *id > 0).collect())
+        .unwrap_or_default();
+
+    if ids.is_empty() {
+        db(env)?.prepare("UPDATE inbox SET status = ? WHERE receiver_id = ?")
+            .bind(&[status.into(), js_num(viewer.id)])?
+            .run()
+            .await?;
+    } else {
+        let mut values: Vec<JsValue> = vec![status.into()];
+        values.extend(ids.iter().map(|id| js_num(*id)));
+        values.push(js_num(viewer.id));
+        db(env)?.prepare(format!("UPDATE inbox SET status = ? WHERE id IN ({}) AND receiver_id = ?", placeholders(ids.len())))
+            .bind(&values)?
+            .run()
+            .await?;
+    }
+
+    json_response(json!({ "ok": true }), 200).map_err(AppError::from)
+}
+
+async fn delete_inbox_item(env: &Env, viewer: &Viewer, item_id: &str) -> std::result::Result<Response, AppError> {
+    let id = item_id.parse::<i64>().map_err(|_| AppError::new(400, "Invalid inbox ID"))?;
+    db(env)?.prepare("DELETE FROM inbox WHERE id = ? AND receiver_id = ?")
+        .bind(&[js_num(id), js_num(viewer.id)])?
+        .run()
+        .await?;
+    json_response(json!({ "ok": true }), 200).map_err(AppError::from)
+}
+
+fn public_inbox_item(row: DbInboxRow) -> Value {
+    let sender = row.sender_id
+        .map(|id| json!({ "id": id, "username": row.sender_username, "nickname": row.sender_nickname }))
+        .unwrap_or(Value::Null);
+    json!({
+        "id": row.id,
+        "createdTs": row.created_ts,
+        "sender": sender,
+        "status": row.status,
+        "message": safe_inbox_message(&row.message)
+    })
+}
+
+fn safe_inbox_message(value: &str) -> Value {
+    serde_json::from_str::<Value>(value).unwrap_or_else(|_| json!({ "type": "unknown" }))
+}
+
 async fn list_attachments(env: &Env, url: &Url, viewer: &Viewer) -> std::result::Result<Response, AppError> {
     let unattached = url.query_pairs().any(|(key, value)| key == "unattached" && value == "true");
     let rows = if viewer.role == "ADMIN" && unattached {
@@ -3088,6 +3166,12 @@ mod tests {
             Some(("alice", None))
         );
         assert_eq!(parse_user_settings_path("alice"), None);
+    }
+
+    #[test]
+    fn safe_inbox_message_parse_falls_back_to_unknown() {
+        assert_eq!(safe_inbox_message("{\"type\":\"memo.comment.created\",\"memoUid\":\"m_1\"}")["type"], "memo.comment.created");
+        assert_eq!(safe_inbox_message("not json"), json!({ "type": "unknown" }));
     }
 
     fn sample_memo() -> DbMemo {
