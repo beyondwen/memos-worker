@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { ProxyAgent, setGlobalDispatcher } from "undici";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 export const BULK_MEMO_PATH = "/api/v1/memos/batch";
@@ -9,6 +10,10 @@ export function loadConfig(env = process.env) {
   const password = env.MEMOS_E2E_PASSWORD || "";
   const webhookUrl = (env.MEMOS_E2E_WEBHOOK_URL || "").trim();
   const keepData = env.MEMOS_E2E_KEEP_DATA === "1" || env.MEMOS_E2E_KEEP_DATA === "true";
+  const signup = env.MEMOS_E2E_SIGNUP === "1" || env.MEMOS_E2E_SIGNUP === "true";
+  const cleanupUser = env.MEMOS_E2E_CLEANUP_USER === "1" || env.MEMOS_E2E_CLEANUP_USER === "true";
+  const adminUsername = env.MEMOS_E2E_ADMIN_USERNAME || "";
+  const adminPassword = env.MEMOS_E2E_ADMIN_PASSWORD || "";
   const timeoutMs = Number.parseInt(env.MEMOS_E2E_TIMEOUT_MS || `${DEFAULT_TIMEOUT_MS}`, 10);
   return {
     baseUrl,
@@ -16,14 +21,32 @@ export function loadConfig(env = process.env) {
     password,
     webhookUrl,
     keepData,
+    signup,
+    cleanupUser,
+    adminUsername,
+    adminPassword,
+    proxyUrl: proxyUrlFromEnv(env),
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS,
   };
+}
+
+export function proxyUrlFromEnv(env = process.env) {
+  return (
+    env.MEMOS_E2E_PROXY_URL
+    || env.HTTPS_PROXY
+    || env.https_proxy
+    || env.HTTP_PROXY
+    || env.http_proxy
+    || ""
+  ).trim();
 }
 
 export function missingConfig(config) {
   const missing = [];
   if (!config.username) missing.push("MEMOS_E2E_USERNAME");
   if (!config.password) missing.push("MEMOS_E2E_PASSWORD");
+  if (config.cleanupUser && !config.adminUsername) missing.push("MEMOS_E2E_ADMIN_USERNAME");
+  if (config.cleanupUser && !config.adminPassword) missing.push("MEMOS_E2E_ADMIN_PASSWORD");
   return missing;
 }
 
@@ -72,6 +95,9 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
   let webhookId = null;
   let primaryMemo;
   try {
+    if (config.signup) {
+      await client.signUp();
+    }
     await client.signIn();
     if (config.webhookUrl) {
       webhookId = await client.createWebhook(config.webhookUrl);
@@ -153,8 +179,32 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
           console.warn(`cleanup failed for ${uid}: ${error.message}`);
         });
       }
+      if (config.cleanupUser) {
+        await cleanupUser(config, fetchImpl).catch((error) => {
+          console.warn(`cleanup user failed for ${config.username}: ${error.message}`);
+        });
+      }
     }
   }
+}
+
+export function configureProxy(config = loadConfig()) {
+  if (!config.proxyUrl) return false;
+  setGlobalDispatcher(new ProxyAgent(config.proxyUrl));
+  return true;
+}
+
+async function cleanupUser(config, fetchImpl) {
+  const adminClient = new SmokeClient(
+    {
+      ...config,
+      username: config.adminUsername,
+      password: config.adminPassword,
+    },
+    fetchImpl,
+  );
+  await adminClient.signIn();
+  await adminClient.deleteUser(config.username);
 }
 
 class SmokeClient {
@@ -171,6 +221,17 @@ class SmokeClient {
     });
     assert(body.accessToken, "signin did not return accessToken");
     this.token = body.accessToken;
+  }
+
+  async signUp() {
+    return this.request("/api/v1/auth/signup", {
+      method: "POST",
+      body: {
+        username: this.config.username,
+        password: this.config.password,
+        nickname: `E2E ${this.config.username}`,
+      },
+    });
   }
 
   async createMemo(content) {
@@ -209,6 +270,10 @@ class SmokeClient {
 
   async deleteInboxItem(id) {
     return this.authed(`/api/v1/inbox/${id}`, { method: "DELETE" });
+  }
+
+  async deleteUser(username) {
+    return this.authed(`/api/v1/users/${encodeURIComponent(username)}`, { method: "DELETE" });
   }
 
   async upsertReaction(uid, reactionType) {
@@ -352,11 +417,13 @@ function assertEvent(events, eventType, memoUid) {
 }
 
 async function main() {
-  const result = await runSmoke();
+  const config = loadConfig();
+  configureProxy(config);
+  const result = await runSmoke(config);
   console.log(JSON.stringify(result));
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error(error.message);
     process.exit(1);

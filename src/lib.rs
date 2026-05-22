@@ -65,6 +65,8 @@ mod attachments;
 pub(crate) use attachments::*;
 mod comments;
 pub(crate) use comments::*;
+mod relation_suggestions;
+pub(crate) use relation_suggestions::*;
 mod relations;
 pub(crate) use relations::*;
 mod users;

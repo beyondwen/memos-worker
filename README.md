@@ -69,7 +69,20 @@ MEMOS_E2E_PASSWORD=your-password \
 npm run test:e2e
 ```
 
-脚本默认访问 `http://127.0.0.1:8787`，会创建临时 memo，覆盖评论、表情、引用关系、分享、批量操作、SSE 事件和 Inbox 通知，结束后自动清理。验证远端环境时设置 `MEMOS_E2E_BASE_URL`；如需保留测试数据，设置 `MEMOS_E2E_KEEP_DATA=1`。
+脚本默认访问 `http://127.0.0.1:8787`，会创建临时 memo，覆盖评论、表情、引用关系、分享、批量操作、SSE 事件和 Inbox 通知，结束后自动清理。验证远端环境时设置 `MEMOS_E2E_BASE_URL`；如需保留测试数据，设置 `MEMOS_E2E_KEEP_DATA=1`。脚本会自动读取 `MEMOS_E2E_PROXY_URL`、`HTTPS_PROXY` 或 `HTTP_PROXY` 并通过代理访问远端环境。
+
+需要让脚本先注册临时测试账号时，可以启用 `MEMOS_E2E_SIGNUP=1`。如果还希望脚本结束后删除该测试账号，需要提供管理员账号：
+
+```bash
+MEMOS_E2E_BASE_URL=https://memos-worker.example.workers.dev \
+MEMOS_E2E_USERNAME=e2e_$(date +%s) \
+MEMOS_E2E_PASSWORD=temporary-password \
+MEMOS_E2E_SIGNUP=1 \
+MEMOS_E2E_CLEANUP_USER=1 \
+MEMOS_E2E_ADMIN_USERNAME=admin \
+MEMOS_E2E_ADMIN_PASSWORD=admin-password \
+npm run test:e2e
+```
 
 如需把 Webhook 投递也纳入冒烟验证，额外设置一个可接收 POST 的地址：
 

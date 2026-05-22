@@ -6,6 +6,7 @@ import {
   loadConfig,
   missingConfig,
   parseSseEvents,
+  proxyUrlFromEnv,
 } from "../scripts/e2e-smoke.js";
 
 describe("e2e smoke script helpers", () => {
@@ -18,8 +19,13 @@ describe("e2e smoke script helpers", () => {
       username: "alice",
       password: "secret",
       keepData: false,
+      signup: false,
+      cleanupUser: false,
+      adminUsername: "",
+      adminPassword: "",
       timeoutMs: 15_000,
       webhookUrl: "",
+      proxyUrl: "",
     });
   });
 
@@ -31,11 +37,29 @@ describe("e2e smoke script helpers", () => {
       MEMOS_E2E_KEEP_DATA: "1",
       MEMOS_E2E_TIMEOUT_MS: "5000",
       MEMOS_E2E_WEBHOOK_URL: "https://example.test/hook",
+      MEMOS_E2E_PROXY_URL: "http://127.0.0.1:7890",
     })).toMatchObject({
       baseUrl: "https://example.test",
       keepData: true,
       timeoutMs: 5000,
       webhookUrl: "https://example.test/hook",
+      proxyUrl: "http://127.0.0.1:7890",
+    });
+  });
+
+  it("loads signup and cleanup account options", () => {
+    expect(loadConfig({
+      MEMOS_E2E_USERNAME: "e2e_user",
+      MEMOS_E2E_PASSWORD: "secret123",
+      MEMOS_E2E_SIGNUP: "1",
+      MEMOS_E2E_CLEANUP_USER: "true",
+      MEMOS_E2E_ADMIN_USERNAME: "admin",
+      MEMOS_E2E_ADMIN_PASSWORD: "admin-secret",
+    })).toMatchObject({
+      signup: true,
+      cleanupUser: true,
+      adminUsername: "admin",
+      adminPassword: "admin-secret",
     });
   });
 
@@ -44,6 +68,27 @@ describe("e2e smoke script helpers", () => {
       "MEMOS_E2E_USERNAME",
       "MEMOS_E2E_PASSWORD",
     ]);
+  });
+
+  it("requires admin credentials when cleanup user is enabled", () => {
+    expect(missingConfig(loadConfig({
+      MEMOS_E2E_USERNAME: "e2e_user",
+      MEMOS_E2E_PASSWORD: "secret123",
+      MEMOS_E2E_CLEANUP_USER: "1",
+    }))).toEqual([
+      "MEMOS_E2E_ADMIN_USERNAME",
+      "MEMOS_E2E_ADMIN_PASSWORD",
+    ]);
+  });
+
+  it("prefers explicit e2e proxy over process proxy env", () => {
+    expect(proxyUrlFromEnv({
+      MEMOS_E2E_PROXY_URL: "http://127.0.0.1:7890",
+      HTTPS_PROXY: "http://127.0.0.1:7891",
+    })).toBe("http://127.0.0.1:7890");
+    expect(proxyUrlFromEnv({
+      HTTPS_PROXY: "http://127.0.0.1:7891",
+    })).toBe("http://127.0.0.1:7891");
   });
 
   it("builds bearer auth headers", () => {

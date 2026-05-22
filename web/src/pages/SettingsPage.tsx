@@ -3,8 +3,7 @@ import { route } from "preact-router";
 import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
 import { normalizeWebhookForm } from "../integrationHelpers";
-import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../webhookDeliveryView";
-import { attachmentCleanupSummary, formatBytes } from "../attachmentCleanupView";
+import { attachmentCleanupSummary } from "../attachmentCleanupView";
 import type { CurrentUser } from "../App";
 import {
   type AiSettings,
@@ -24,7 +23,14 @@ import {
   type WebhookDelivery,
 } from "./settingsModel";
 import { runMigrationStream } from "./settingsMigration";
-import { AuditSettingsTab, MaintenanceSettingsTab, SettingsTabBar } from "./settingsTabs";
+import {
+  AccountSettingsTab,
+  AuditSettingsTab,
+  DataSettingsTab,
+  IntegrationSettingsTab,
+  MaintenanceSettingsTab,
+  SettingsTabBar,
+} from "./settingsTabs";
 
 interface SettingsPageProps {
   path: string;
@@ -627,12 +633,26 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
-  const formatTs = (ts: number) =>
-    new Date(ts * 1000).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+  const resetMigrationDraft = () => {
+    setMigrationPreview(null);
+    setMigrationResult(null);
+    setMigrationProgress(null);
+  };
+
+  const handleMigrationBaseUrlChange = (value: string) => {
+    setMigrationBaseUrl(value);
+    resetMigrationDraft();
+  };
+
+  const handleMigrationTokenChange = (value: string) => {
+    setMigrationToken(value);
+    resetMigrationDraft();
+  };
+
+  const handleMigrationIncludeArchivedChange = (value: boolean) => {
+    setMigrationIncludeArchived(value);
+    resetMigrationDraft();
+  };
 
   const attachmentSummary = attachmentCleanupSummary(unattachedAttachments);
   const migrationBusy = migrationPreviewing || migrationImporting;
@@ -669,495 +689,105 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       />
 
       {activeSettingsTab === "account" && (
-        <>
-      <div class="settings-section">
-        <h2>实例概览</h2>
-        <div class="overview-grid">
-          <div>
-            <span class="overview-label">实例</span>
-            <strong>{instanceName}</strong>
-          </div>
-          <div>
-            <span class="overview-label">备忘录</span>
-            <strong>{stats?.memoCount ?? "-"}</strong>
-          </div>
-          <div>
-            <span class="overview-label">附件</span>
-            <strong>{stats?.attachmentCount ?? "-"}</strong>
-          </div>
-        </div>
-        <div class="settings-links">
-          <a href="/api/v1/explore/rss.xml" target="_blank" rel="noopener noreferrer">公开 RSS</a>
-          <a href={`/api/v1/u/${encodeURIComponent(currentUser.username)}/rss.xml`} target="_blank" rel="noopener noreferrer">
-            我的公开 RSS
-          </a>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <h2>个人资料</h2>
-        <form onSubmit={handleProfileSave}>
-          <div class="form-group">
-            <label class="form-label">昵称</label>
-            <input
-              class="form-input"
-              type="text"
-              value={nickname}
-              onInput={(e) => setNickname((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">邮箱</label>
-            <input
-              class="form-input"
-              type="email"
-              value={email}
-              onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">简介</label>
-            <textarea
-              class="form-input"
-              value={description}
-              onInput={(e) => setDescription((e.target as HTMLTextAreaElement).value)}
-              rows={3}
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">头像链接</label>
-            <input
-              class="form-input"
-              type="text"
-              value={avatarUrl}
-              onInput={(e) => setAvatarUrl((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          {profileMsg && (
-            <div class={`inline-message ${profileMsg.startsWith("Error") ? "error" : "success"}`}>
-              {profileMsg}
-            </div>
-          )}
-          <button class="btn btn-primary" type="submit" disabled={profileSaving}>
-            {profileSaving ? "保存中..." : "保存资料"}
-          </button>
-        </form>
-      </div>
-
-      <div class="settings-section">
-        <h2>修改密码</h2>
-        <form onSubmit={handlePasswordChange}>
-          <div class="form-group">
-            <label class="form-label">当前密码</label>
-            <input
-              class="form-input"
-              type="password"
-              value={currentPassword}
-              onInput={(e) => setCurrentPassword((e.target as HTMLInputElement).value)}
-              autoComplete="current-password"
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">新密码</label>
-            <input
-              class="form-input"
-              type="password"
-              value={newPassword}
-              onInput={(e) => setNewPassword((e.target as HTMLInputElement).value)}
-              autoComplete="new-password"
-            />
-          </div>
-          {pwError && <div class="form-error">{pwError}</div>}
-          {pwMsg && (
-            <div class="inline-message success">
-              {pwMsg}
-            </div>
-          )}
-          <button
-            class="btn btn-primary"
-            type="submit"
-            disabled={pwSaving || !currentPassword || !newPassword}
-          >
-            {pwSaving ? "修改中..." : "修改密码"}
-          </button>
-        </form>
-      </div>
-
-      <div class="settings-section">
-        <h2>个人访问令牌</h2>
-
-        <div class="settings-record-list">
-          {pats.map((pat) => (
-            <div key={pat.id} class="settings-record-row">
-              <div class="settings-record-main">
-                <span class="settings-record-title">{pat.name}</span>
-                <span class="settings-record-meta">
-                  {pat.prefix}... · {pat.expiresTs ? `过期时间 ${formatTs(pat.expiresTs)}` : "无过期时间"}
-                </span>
-              </div>
-              <button
-                class="btn btn-danger-soft btn-sm"
-                onClick={() => handleDeletePat(pat.id)}
-              >
-                删除
-              </button>
-            </div>
-          ))}
-          {pats.length === 0 && (
-            <div class="muted-line">
-              暂未创建令牌。
-            </div>
-          )}
-        </div>
-
-        <form onSubmit={handleCreatePat} class="inline-form">
-          <div class="form-group">
-            <input
-              class="form-input"
-              type="text"
-              placeholder="令牌名称"
-              aria-label="令牌名称"
-              value={newPatName}
-              onInput={(e) => setNewPatName((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <button class="btn btn-primary btn-sm" type="submit" disabled={patCreating}>
-            {patCreating ? "创建中..." : "创建令牌"}
-          </button>
-        </form>
-
-        {newPatResult && (
-          <div class="pat-token-box">
-            <div class="pat-token-title">
-              令牌已创建！请立即复制，之后将不再显示。
-            </div>
-            <code>{newPatResult.token}</code>
-          </div>
-        )}
-      </div>
-        </>
+        <AccountSettingsTab
+          currentUser={currentUser}
+          instanceName={instanceName}
+          stats={stats}
+          nickname={nickname}
+          email={email}
+          description={description}
+          avatarUrl={avatarUrl}
+          profileMsg={profileMsg}
+          profileSaving={profileSaving}
+          currentPassword={currentPassword}
+          newPassword={newPassword}
+          pwSaving={pwSaving}
+          pwMsg={pwMsg}
+          pwError={pwError}
+          pats={pats}
+          newPatName={newPatName}
+          newPatResult={newPatResult}
+          patCreating={patCreating}
+          onNicknameChange={setNickname}
+          onEmailChange={setEmail}
+          onDescriptionChange={setDescription}
+          onAvatarUrlChange={setAvatarUrl}
+          onCurrentPasswordChange={setCurrentPassword}
+          onNewPasswordChange={setNewPassword}
+          onNewPatNameChange={setNewPatName}
+          onProfileSave={handleProfileSave}
+          onPasswordChange={handlePasswordChange}
+          onCreatePat={handleCreatePat}
+          onDeletePat={handleDeletePat}
+        />
       )}
 
       {activeSettingsTab === "integrations" && (
-      <div class="settings-section">
-        <h2>Webhook 集成</h2>
-        <div class="settings-record-list">
-          {webhooks.map((webhook) => (
-            <div key={webhook.id} class="settings-record-row">
-              <div class="settings-record-main">
-                <span class="settings-record-title">{webhook.name}</span>
-                <span class="settings-record-meta">{webhook.rowStatus === "NORMAL" ? "启用" : "停用"} · {webhook.url}</span>
-              </div>
-              <div class="settings-record-actions">
-                <button class="btn btn-ghost btn-sm" onClick={() => handleToggleWebhook(webhook)}>
-                  {webhook.rowStatus === "NORMAL" ? "停用" : "启用"}
-                </button>
-                <button
-                  class="btn btn-ghost btn-sm"
-                  onClick={() => handleTestWebhook(webhook)}
-                  disabled={testingWebhookId === webhook.id}
-                >
-                  {testingWebhookId === webhook.id ? "测试中..." : "测试"}
-                </button>
-                <button class="btn btn-danger-soft btn-sm" onClick={() => handleDeleteWebhook(webhook)}>
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
-          {webhooks.length === 0 && <div class="muted-line">暂无 Webhook。</div>}
-        </div>
-        <form onSubmit={handleCreateWebhook} class="inline-form">
-          <div class="form-group">
-            <input
-              class="form-input"
-              type="text"
-              placeholder="名称"
-              aria-label="Webhook 名称"
-              value={webhookName}
-              onInput={(e) => setWebhookName((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <div class="form-group">
-            <input
-              class="form-input"
-              type="url"
-              placeholder="https://example.com/webhook"
-              aria-label="Webhook 地址"
-              value={webhookUrl}
-              onInput={(e) => setWebhookUrl((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <button class="btn btn-primary btn-sm" type="submit" disabled={webhookSaving}>
-            {webhookSaving ? "创建中..." : "创建"}
-          </button>
-        </form>
-
-        <div class="webhook-delivery-panel">
-          <div class="settings-subtitle">最近投递</div>
-          <div class="webhook-delivery-list">
-            {webhookDeliveries.map((delivery) => {
-              const meta = webhookDeliveryStatusMeta(delivery);
-              return (
-                <div key={delivery.id} class="webhook-delivery-item">
-                  <div class="webhook-delivery-main">
-                    <span class={`delivery-status ${meta.className}`}>{meta.label}</span>
-                    <span class="delivery-event">{delivery.event}</span>
-                    <span class="delivery-name">{delivery.webhookName}</span>
-                    <span class="delivery-time">{webhookDeliveryTimeLabel(delivery.createdTs)}</span>
-                  </div>
-                  <div class="webhook-delivery-meta">
-                    <span>{delivery.durationMs}ms</span>
-                    {delivery.error && <span class="delivery-error">{delivery.error}</span>}
-                    {meta.canRetry && (
-                      <button
-                        class="btn btn-ghost btn-sm"
-                        onClick={() => handleRetryWebhookDelivery(delivery)}
-                        disabled={retryingDeliveryId === delivery.id}
-                      >
-                        {retryingDeliveryId === delivery.id ? "重试中..." : "重试"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {webhookDeliveries.length === 0 && <div class="muted-line">暂无投递记录。</div>}
-          </div>
-        </div>
-      </div>
+        <IntegrationSettingsTab
+          webhooks={webhooks}
+          webhookName={webhookName}
+          webhookUrl={webhookUrl}
+          webhookSaving={webhookSaving}
+          webhookDeliveries={webhookDeliveries}
+          retryingDeliveryId={retryingDeliveryId}
+          testingWebhookId={testingWebhookId}
+          onWebhookNameChange={setWebhookName}
+          onWebhookUrlChange={setWebhookUrl}
+          onCreateWebhook={handleCreateWebhook}
+          onToggleWebhook={handleToggleWebhook}
+          onTestWebhook={handleTestWebhook}
+          onDeleteWebhook={handleDeleteWebhook}
+          onRetryWebhookDelivery={handleRetryWebhookDelivery}
+        />
       )}
 
       {activeSettingsTab === "data" && currentUser.role === "ADMIN" && (
-        <>
-        <div class="settings-section">
-          <h2>数据维护</h2>
-          <div class="settings-actions">
-            <button class="btn btn-secondary" onClick={handleExport}>
-              导出备忘录
-            </button>
-            <button class="btn btn-secondary" onClick={handleCreateBackup} disabled={backupCreating}>
-              {backupCreating ? "备份中..." : "立即备份"}
-            </button>
-            <label class="btn btn-secondary file-label">
-              导入备忘录
-              <input type="file" accept="application/json" onChange={handleImport} />
-            </label>
-          </div>
-          <div class="settings-subtitle">备份列表</div>
-          <div class="settings-record-list">
-            {backups.map((backup) => (
-              <div key={backup.key} class="settings-record-row">
-                <div class="settings-record-main">
-                  <span class="settings-record-title">{backup.key.split("/").pop()}</span>
-                  <span class="settings-record-meta">{formatBytes(backup.size)} · {new Date(backup.uploaded).toLocaleString("zh-CN")}</span>
-                </div>
-                <div class="settings-record-actions">
-                  <a class="btn btn-ghost btn-sm" href={`/api/v1/backups/download?key=${encodeURIComponent(backup.key)}`} target="_blank" rel="noopener noreferrer">
-                    下载
-                  </a>
-                  <button class="btn btn-ghost btn-sm" onClick={() => handlePreviewBackup(backup)}>
-                    预览
-                  </button>
-                </div>
-              </div>
-            ))}
-            {backups.length === 0 && <div class="muted-line">暂无备份。</div>}
-          </div>
-          {backupPreview && (
-            <div class="backup-preview">
-              <span>用户 {backupPreview.userCount}</span>
-              <span>备忘录 {backupPreview.memoCount}</span>
-              <span>附件 {backupPreview.attachmentCount}</span>
-              <span>引用 {backupPreview.relationCount}</span>
-              <button class="btn btn-danger btn-sm" onClick={handleRestoreBackup}>恢复此备份</button>
-            </div>
-          )}
-        </div>
-
-        <div class="settings-section">
-          <h2>AI 设置</h2>
-          <div class="ai-settings-grid">
-            <div class="form-group">
-              <label class="form-label">API Base URL</label>
-              <input
-                class="form-input"
-                type="url"
-                value={aiBaseUrl}
-                onInput={(e) => setAiBaseUrl((e.target as HTMLInputElement).value)}
-                placeholder="https://api.openai.com/v1"
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">模型</label>
-              <input
-                class="form-input"
-                value={aiModel}
-                onInput={(e) => setAiModel((e.target as HTMLInputElement).value)}
-                placeholder="gpt-4o-mini"
-              />
-            </div>
-            <div class="form-group ai-key-field">
-              <label class="form-label">API Key</label>
-              <input
-                class="form-input"
-                type="password"
-                value={aiApiKey}
-                onInput={(e) => setAiApiKey((e.target as HTMLInputElement).value)}
-                placeholder={aiConfigured ? "已配置，留空则不修改" : "请输入 API Key"}
-                autoComplete="off"
-              />
-            </div>
-          </div>
-          <div class="settings-actions">
-            <button class="btn btn-secondary" onClick={handleTestAiSettings} disabled={aiTesting || !aiBaseUrl.trim() || !aiModel.trim()}>
-              {aiTesting ? "测试中..." : "测试连接"}
-            </button>
-            <button class="btn btn-primary" onClick={handleSaveAiSettings} disabled={aiSaving || !aiBaseUrl.trim() || !aiModel.trim()}>
-              {aiSaving ? "保存中..." : "保存 AI 设置"}
-            </button>
-          </div>
-          <div class="migration-summary">
-            <span>{aiConfigured ? "API Key 已配置" : "API Key 未配置"}</span>
-            <span>{aiModel || "未设置模型"}</span>
-          </div>
-          <div class="muted-line">
-            API Key 不会回显；留空保存时会保留已有 Key。
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <h2>从原版 Memos 迁移</h2>
-          <div class="migration-form">
-            <div class="form-group">
-              <label class="form-label">原版 Memos 地址</label>
-              <input
-                class="form-input"
-                type="url"
-                placeholder="https://memos.example.com"
-                value={migrationBaseUrl}
-                onInput={(e) => {
-                  setMigrationBaseUrl((e.target as HTMLInputElement).value);
-                  setMigrationPreview(null);
-                  setMigrationResult(null);
-                  setMigrationProgress(null);
-                }}
-              />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Access Token</label>
-              <input
-                class="form-input"
-                type="password"
-                placeholder="只用于本次迁移，不会保存"
-                value={migrationToken}
-                onInput={(e) => {
-                  setMigrationToken((e.target as HTMLInputElement).value);
-                  setMigrationPreview(null);
-                  setMigrationResult(null);
-                  setMigrationProgress(null);
-                }}
-                autoComplete="off"
-              />
-            </div>
-            <label class="migration-option">
-              <input
-                type="checkbox"
-                checked={migrationIncludeArchived}
-                onChange={(e) => {
-                  setMigrationIncludeArchived((e.target as HTMLInputElement).checked);
-                  setMigrationPreview(null);
-                  setMigrationResult(null);
-                  setMigrationProgress(null);
-                }}
-              />
-              <span>包含归档内容</span>
-            </label>
-          </div>
-          <div class="settings-actions">
-            <button
-              class="btn btn-secondary"
-              onClick={handlePreviewMigration}
-              disabled={migrationPreviewing || migrationImporting || !migrationBaseUrl.trim() || !migrationToken.trim()}
-            >
-              {migrationPreviewing ? "预检中..." : "预检"}
-            </button>
-            <button
-              class="btn btn-primary"
-              onClick={handleRunMigration}
-              disabled={migrationPreviewing || migrationImporting || !migrationBaseUrl.trim() || !migrationToken.trim()}
-            >
-              {migrationImporting ? "迁移中..." : "开始迁移"}
-            </button>
-          </div>
-          {migrationProgressVisible && (
-            <div
-              class="migration-progress"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={migrationKnownTotal || undefined}
-              aria-valuenow={migrationProgressPercent ?? undefined}
-              aria-valuetext={migrationProgressDetail}
-            >
-              <div class="migration-progress-track" aria-hidden="true">
-                <div
-                  class={`migration-progress-fill${migrationProgressPercent !== null ? " determinate" : ""}`}
-                  style={migrationProgressPercent !== null ? { width: `${migrationProgressPercent}%` } : undefined}
-                />
-              </div>
-              <div class="migration-progress-text">
-                <strong>{migrationProgressTitle}</strong>
-                <span>{migrationProgressDetail}</span>
-              </div>
-              {migrationProgress && (
-                <div class="migration-progress-stats">
-                  <span>已处理 {migrationProgress.processed}</span>
-                  <span>已导入 {migrationProgress.imported}</span>
-                  <span>已跳过 {migrationProgress.skipped}</span>
-                  <span>已读取 {migrationProgress.memoCount}</span>
-                </div>
-              )}
-            </div>
-          )}
-          {(migrationPreview || migrationResult) && (
-            <div class="migration-summary">
-              <span>备忘录 {migrationPreview?.memoCount ?? migrationResult?.memoCount}</span>
-              <span>归档 {migrationPreview?.archivedCount ?? migrationResult?.archivedCount}</span>
-              <span>附件元信息 {migrationPreview?.attachmentCount ?? migrationResult?.attachmentCount}</span>
-              <span>引用元信息 {migrationPreview?.relationCount ?? migrationResult?.relationCount}</span>
-              {(migrationPreview?.truncated || migrationResult?.truncated) && <span>已达到单次上限</span>}
-              {migrationResult && (
-                <>
-                  <span>已导入 {migrationResult.imported}</span>
-                  <span>已跳过 {migrationResult.skipped}</span>
-                </>
-              )}
-            </div>
-          )}
-          <div class="muted-line">
-            附件文件不会在第一版中下载，只会保留原始附件和引用元信息。
-          </div>
-        </div>
-
-      <div class="settings-section">
-        <h2>标签管理</h2>
-        <div class="tag-list settings-tag-list">
-          {tags.map((tag) => (
-            <button key={tag.name} class="tag-item" onClick={() => setTagFrom(tag.name)}>
-              #{tag.name} <span>{tag.count}</span>
-            </button>
-          ))}
-          {tags.length === 0 && <div class="muted-line">暂无标签。</div>}
-        </div>
-        <form class="inline-form" onSubmit={handleRenameTag}>
-          <input class="form-input" placeholder="原标签" aria-label="原标签" value={tagFrom} onInput={(e) => setTagFrom((e.target as HTMLInputElement).value)} />
-          <input class="form-input" placeholder="新标签" aria-label="新标签" value={tagTo} onInput={(e) => setTagTo((e.target as HTMLInputElement).value)} />
-          <button class="btn btn-primary btn-sm" disabled={tagSaving || !tagFrom || !tagTo}>
-            {tagSaving ? "处理中..." : "重命名/合并"}
-          </button>
-        </form>
-      </div>
-        </>
+        <DataSettingsTab
+          backups={backups}
+          backupCreating={backupCreating}
+          backupPreview={backupPreview}
+          aiBaseUrl={aiBaseUrl}
+          aiModel={aiModel}
+          aiApiKey={aiApiKey}
+          aiConfigured={aiConfigured}
+          aiSaving={aiSaving}
+          aiTesting={aiTesting}
+          migrationBaseUrl={migrationBaseUrl}
+          migrationToken={migrationToken}
+          migrationIncludeArchived={migrationIncludeArchived}
+          migrationPreview={migrationPreview}
+          migrationResult={migrationResult}
+          migrationProgress={migrationProgress}
+          migrationPreviewing={migrationPreviewing}
+          migrationImporting={migrationImporting}
+          tags={tags}
+          tagFrom={tagFrom}
+          tagTo={tagTo}
+          tagSaving={tagSaving}
+          migrationProgressVisible={migrationProgressVisible}
+          migrationKnownTotal={migrationKnownTotal}
+          migrationProgressPercent={migrationProgressPercent}
+          migrationProgressTitle={migrationProgressTitle}
+          migrationProgressDetail={migrationProgressDetail}
+          onExport={handleExport}
+          onImport={handleImport}
+          onCreateBackup={handleCreateBackup}
+          onPreviewBackup={handlePreviewBackup}
+          onRestoreBackup={handleRestoreBackup}
+          onAiBaseUrlChange={setAiBaseUrl}
+          onAiModelChange={setAiModel}
+          onAiApiKeyChange={setAiApiKey}
+          onTestAiSettings={handleTestAiSettings}
+          onSaveAiSettings={handleSaveAiSettings}
+          onMigrationBaseUrlChange={handleMigrationBaseUrlChange}
+          onMigrationTokenChange={handleMigrationTokenChange}
+          onMigrationIncludeArchivedChange={handleMigrationIncludeArchivedChange}
+          onPreviewMigration={handlePreviewMigration}
+          onRunMigration={handleRunMigration}
+          onTagFromChange={setTagFrom}
+          onTagToChange={setTagTo}
+          onRenameTag={handleRenameTag}
+        />
       )}
 
       {activeSettingsTab === "maintenance" && (
