@@ -72,9 +72,23 @@ pub(crate) async fn rename_tag(
 
 pub(crate) async fn timeline(
     env: &Env,
+    url: &Url,
     viewer: &Viewer,
 ) -> std::result::Result<Response, AppError> {
-    let rows = if viewer.role == "ADMIN" {
+    let year = query_param(url, "year").and_then(|value| value.parse::<i32>().ok());
+    let month = query_param(url, "month").and_then(|value| value.parse::<u32>().ok());
+    let rows = if let (Some(year), Some(month)) = (year, month) {
+        let (start_ts, end_ts) = calendar_month_bounds(year, month)?;
+        if viewer.role == "ADMIN" {
+            db(env)?.prepare("SELECT date(created_ts, 'unixepoch') AS day, COUNT(*) AS count FROM memo WHERE row_status = 'NORMAL' AND created_ts >= ? AND created_ts < ? GROUP BY day ORDER BY day ASC")
+                .bind(&[js_num(start_ts), js_num(end_ts)])?
+                .all().await?
+        } else {
+            db(env)?.prepare("SELECT date(created_ts, 'unixepoch') AS day, COUNT(*) AS count FROM memo WHERE row_status = 'NORMAL' AND created_ts >= ? AND created_ts < ? AND (visibility != 'PRIVATE' OR creator_id = ?) GROUP BY day ORDER BY day ASC")
+                .bind(&[js_num(start_ts), js_num(end_ts), js_num(viewer.id)])?
+                .all().await?
+        }
+    } else if viewer.role == "ADMIN" {
         db(env)?.prepare("SELECT date(created_ts, 'unixepoch') AS day, COUNT(*) AS count FROM memo WHERE row_status = 'NORMAL' GROUP BY day ORDER BY day DESC LIMIT 120")
             .all().await?
     } else {
@@ -84,4 +98,29 @@ pub(crate) async fn timeline(
     };
     let days: Vec<Value> = rows.results()?;
     json_response(json!({ "days": days }), 200).map_err(AppError::from)
+}
+
+pub(crate) fn calendar_month_bounds(
+    year: i32,
+    month: u32,
+) -> std::result::Result<(i64, i64), AppError> {
+    if !(1970..=2100).contains(&year) || !(1..=12).contains(&month) {
+        return Err(AppError::new(400, "Invalid calendar month"));
+    }
+    let start = chrono::NaiveDate::from_ymd_opt(year, month, 1)
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+        .ok_or_else(|| AppError::new(400, "Invalid calendar month"))?
+        .and_utc()
+        .timestamp();
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let end = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+        .ok_or_else(|| AppError::new(400, "Invalid calendar month"))?
+        .and_utc()
+        .timestamp();
+    Ok((start, end))
 }

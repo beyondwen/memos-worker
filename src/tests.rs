@@ -367,6 +367,24 @@ fn memo_tags_from_payload_normalizes_unique_tags() {
 }
 
 #[test]
+fn calendar_month_bounds_use_utc_month_edges() {
+    assert_eq!(
+        calendar_month_bounds(2026, 5).expect("month bounds"),
+        (1_777_593_600, 1_780_272_000)
+    );
+    assert!(calendar_month_bounds(1969, 12).is_err());
+    assert!(calendar_month_bounds(2026, 13).is_err());
+}
+
+#[test]
+fn calendar_country_codes_are_two_uppercase_letters() {
+    assert!(valid_country_code("US"));
+    assert!(valid_country_code("CN"));
+    assert!(!valid_country_code("usa"));
+    assert!(!valid_country_code("U1"));
+}
+
+#[test]
 fn memo_index_health_json_marks_drift() {
     let health = MemoIndexHealth {
         memo_count: 2,

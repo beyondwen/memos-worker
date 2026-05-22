@@ -25,6 +25,7 @@ import { MEMO_LIST_SSE_REFRESH_DEBOUNCE_MS, scheduleDebouncedRefresh } from "../
 import { personalPrimaryNavItems, personalSettingsTabs } from "../web/src/personalMode";
 import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
 import { SETTINGS_TABS } from "../web/src/pages/settingsModel";
+import { buildCalendarEventMap, buildCalendarWeeks, shiftMonth } from "../web/src/calendarView";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -404,6 +405,38 @@ describe("personal mode feature trim", () => {
       "data",
       "maintenance",
     ]);
+  });
+});
+
+describe("calendar view helpers", () => {
+  it("builds six calendar weeks with memo counts and world observances", () => {
+    const weeks = buildCalendarWeeks(
+      2026,
+      5,
+      [{ day: "2026-05-01", count: 3 }],
+      [{ date: "2026-05-25", localName: "Memorial Day", name: "Memorial Day" }],
+      new Date(2026, 4, 2),
+    );
+
+    expect(weeks).toHaveLength(6);
+    const mayFirst = weeks.flatMap((week) => week.days).find((day) => day.date === "2026-05-01");
+    expect(mayFirst?.memoCount).toBe(3);
+    expect(mayFirst?.events.some((event) => event.label === "国际劳动节")).toBe(true);
+    expect(weeks.flatMap((week) => week.days).find((day) => day.date === "2026-05-02")?.isToday).toBe(true);
+  });
+
+  it("merges country holidays with fixed international observances", () => {
+    const events = buildCalendarEventMap(2026, 12, [
+      { date: "2026-12-25", localName: "Christmas Day", name: "Christmas Day" },
+    ]);
+
+    expect(events.get("2026-12-10")?.some((event) => event.label === "世界人权日")).toBe(true);
+    expect(events.get("2026-12-25")?.some((event) => event.kind === "holiday")).toBe(true);
+  });
+
+  it("shifts months across year boundaries", () => {
+    expect(shiftMonth(2026, 1, -1)).toEqual({ year: 2025, month: 12 });
+    expect(shiftMonth(2026, 12, 1)).toEqual({ year: 2027, month: 1 });
   });
 });
 

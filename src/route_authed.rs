@@ -61,7 +61,13 @@ pub(crate) async fn authed_route(
         return rename_tag(req, env, &viewer).await;
     }
     if path == "/api/v1/timeline" && method == Method::Get {
-        return timeline(env, &viewer).await;
+        return timeline(env, url, &viewer).await;
+    }
+    if path == "/api/v1/calendar/countries" && method == Method::Get {
+        return list_calendar_countries().await;
+    }
+    if path == "/api/v1/calendar/holidays" && method == Method::Get {
+        return list_calendar_holidays(url).await;
     }
     if path == "/api/v1/attachments" && method == Method::Get {
         return list_attachments(env, url, &viewer).await;

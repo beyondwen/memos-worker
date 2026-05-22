@@ -90,6 +90,8 @@ mod access_tokens;
 pub(crate) use access_tokens::*;
 mod tags;
 pub(crate) use tags::*;
+mod calendar;
+pub(crate) use calendar::*;
 mod store;
 pub(crate) use store::*;
 mod domain;

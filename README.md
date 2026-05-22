@@ -13,6 +13,7 @@ Cloudflare Pages + Rust Worker + D1 + R2 版的轻量 Memos 实现。
 - 管理员 JSON 导入/导出
 - 评论、引用关系
 - Rust SSE 端点、D1 事件补偿、事件清理和迁移进度流
+- 月历视图，按天显示 memo 数量、各国公共假期和世界纪念日
 - 内置最小 Web UI
 
 ## 当前架构
@@ -22,6 +23,7 @@ Cloudflare Pages + Rust Worker + D1 + R2 版的轻量 Memos 实现。
 - D1 负责业务数据和 SSE 补偿事件；R2 负责附件对象。
 - `/api/v1/sse` 采用短连接事件流加 D1 补偿，客户端通过 `Last-Event-ID` 或 `since` 补拉事件。当前还没有 Durable Object 长连接广播。
 - Memo、评论、引用关系和批量操作会写入 `memo_event`。
+- 日历假期数据通过同源 Worker 代理 Nager.Date 公共假期 API，前端本地叠加固定世界纪念日。
 - 定时任务会先创建备份，再清理超过 7 天的 `memo_event`，避免补偿表无限增长。
 
 ## 本地运行
