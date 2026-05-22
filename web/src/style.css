@@ -416,6 +416,70 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 }
 .editor-textarea:focus { outline: none; }
 .editor-textarea::placeholder { color: #aaa39a; }
+.rich-editor {
+  border: 1px solid rgba(229,226,220,0.86);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.78);
+  overflow: hidden;
+}
+.rich-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  background: #f8faf7;
+}
+.rich-toolbar button {
+  min-width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #405446;
+  font-weight: 800;
+}
+.rich-toolbar button:hover {
+  border-color: #cfdcd2;
+  background: var(--paper);
+}
+.rich-editor-surface {
+  min-height: 126px;
+  padding: 12px 14px;
+  line-height: 1.75;
+  font-size: 1rem;
+  outline: none;
+}
+.rich-editor-surface:empty::before {
+  content: attr(data-placeholder);
+  color: #aaa39a;
+}
+.rich-editor-surface h1,
+.rich-editor-surface h2,
+.rich-editor-surface h3 {
+  margin: 0.4em 0;
+  line-height: 1.35;
+}
+.rich-editor-surface ul,
+.rich-editor-surface ol {
+  padding-left: 1.4em;
+}
+.rich-editor-surface blockquote {
+  margin: 0.5em 0;
+  padding-left: 10px;
+  border-left: 3px solid #d8b4a0;
+  color: var(--text-secondary);
+}
+.rich-editor-surface pre {
+  white-space: pre-wrap;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: #242421;
+  color: #f7f1e8;
+}
 .editor-actions {
   display: flex; align-items: center; gap: 8px;
   margin-top: 14px; padding-top: 14px;
@@ -427,6 +491,25 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   padding: 5px 8px; border: 1px solid var(--line);
   border-radius: var(--radius-sm); font-size: 0.8125rem;
   color: var(--muted); background: var(--paper);
+}
+.editor-date-field {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.editor-date-field input {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+  min-width: 170px;
 }
 .template-bar {
   display: flex; flex-wrap: wrap; gap: 6px;

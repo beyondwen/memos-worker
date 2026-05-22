@@ -13,6 +13,7 @@ export interface EditorDraft {
   content: string;
   visibility: MemoVisibility;
   attachmentUids: string[];
+  createdAt: string;
   savedAt: number;
 }
 
@@ -20,6 +21,7 @@ interface DraftInput {
   content: string;
   visibility: MemoVisibility;
   attachmentUids: string[];
+  createdAt?: string;
 }
 
 function getBrowserStorage(): StorageLike | null {
@@ -40,6 +42,7 @@ export function loadEditorDraft(storage: StorageLike | null = getBrowserStorage(
       attachmentUids: Array.isArray(parsed.attachmentUids)
         ? parsed.attachmentUids.filter((uid): uid is string => typeof uid === "string")
         : [],
+      createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : "",
       savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0,
     };
   } catch (err) {

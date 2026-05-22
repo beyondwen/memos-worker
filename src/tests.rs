@@ -380,6 +380,29 @@ fn memo_date_filters_reject_invalid_dates() {
 }
 
 #[test]
+fn memo_created_ts_from_body_accepts_unix_and_datetime_values() {
+    assert_eq!(
+        memo_created_ts_from_body(&json!({ "createdTs": 1_779_321_600 }), 1).unwrap(),
+        1_779_321_600
+    );
+    assert_eq!(
+        memo_created_ts_from_body(&json!({ "createdAt": "2026-05-21T00:00" }), 1).unwrap(),
+        1_779_321_600
+    );
+    assert_eq!(memo_created_ts_from_body(&json!({}), 7).unwrap(), 7);
+    assert_eq!(
+        memo_created_ts_from_body(&json!({ "createdTs": null }), 7).unwrap(),
+        7
+    );
+}
+
+#[test]
+fn memo_created_ts_from_body_rejects_invalid_values() {
+    assert!(memo_created_ts_from_body(&json!({ "createdTs": -1 }), 1).is_err());
+    assert!(memo_created_ts_from_body(&json!({ "createdAt": "bad" }), 1).is_err());
+}
+
+#[test]
 fn memo_tags_from_payload_normalizes_unique_tags() {
     assert_eq!(
         memo_tags_from_payload(r##"{"tags":["work"," work ","","life","work"]}"##),

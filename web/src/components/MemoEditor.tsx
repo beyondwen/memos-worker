@@ -4,6 +4,8 @@ import { useFeedback } from "./Feedback";
 import { clearEditorDraft, loadEditorDraft, saveEditorDraft } from "../editorDraft";
 import type { MemoVisibility } from "../memoQuery";
 import { applyMemoTemplate, MEMO_TEMPLATES, type MemoTemplate } from "../memoTemplates";
+import { dateTimeLocalToUnix, nowDateTimeLocal } from "../richText";
+import { RichTextEditor } from "./RichTextEditor";
 
 interface Attachment { uid: string; filename: string; }
 interface MemoEditorProps { onCreated: (memo: unknown) => void; }
@@ -14,6 +16,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
   const [initialDraft] = useState(() => loadEditorDraft(storage));
   const [content, setContent] = useState(initialDraft?.content ?? "");
   const [visibility, setVisibility] = useState<MemoVisibility>(initialDraft?.visibility ?? "PRIVATE");
+  const [createdAt, setCreatedAt] = useState(initialDraft?.createdAt || nowDateTimeLocal());
   const [attachments, setAttachments] = useState<Attachment[]>(
     () => initialDraft?.attachmentUids.map((uid) => ({ uid, filename: "已保存的附件" })) ?? []
   );
@@ -23,8 +26,8 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
   const attachmentUids = attachments.map((attachment) => attachment.uid);
 
   useEffect(() => {
-    saveEditorDraft(storage, { content, visibility, attachmentUids });
-  }, [attachments, content, storage, visibility]);
+    saveEditorDraft(storage, { content, visibility, attachmentUids, createdAt });
+  }, [attachments, content, createdAt, storage, visibility]);
 
   const handleFile = async (e: Event) => {
     const input = e.target as HTMLInputElement;
@@ -46,12 +49,19 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
     if (!trimmed) return;
     setSubmitting(true);
     try {
+      const createdTs = dateTimeLocalToUnix(createdAt);
+      const payload: { content: string; visibility: MemoVisibility; attachmentUids: string[]; createdTs?: number } = {
+        content: trimmed,
+        visibility,
+        attachmentUids,
+      };
+      if (createdTs !== null) payload.createdTs = createdTs;
       const data = await api<{ memo: unknown }>("/api/v1/memos", {
         method: "POST",
-        body: JSON.stringify({ content: trimmed, visibility, attachmentUids }),
+        body: JSON.stringify(payload),
       });
       clearEditorDraft(storage);
-      setContent(""); setAttachments([]); onCreated(data.memo); notify("备忘录已发布", "success");
+      setContent(""); setAttachments([]); setCreatedAt(nowDateTimeLocal()); onCreated(data.memo); notify("备忘录已发布", "success");
     } catch (err) { notify(`创建失败：${(err as Error).message}`, "error"); }
     finally { setSubmitting(false); }
   };
@@ -71,12 +81,11 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         </div>
       </div>
 
-      <textarea
-        class="editor-textarea"
+      <RichTextEditor
         placeholder="记录点什么..."
         value={content}
-        onInput={(e) => setContent((e.target as HTMLTextAreaElement).value)}
-        onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit(); }}
+        onChange={setContent}
+        onSubmit={submit}
       />
 
       <div class="template-bar" aria-label="备忘录模板">
@@ -107,6 +116,14 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         </div>
 
         <input ref={fileRef} type="file" multiple class="hidden-file-input" onChange={handleFile} />
+        <label class="editor-date-field">
+          <span>日期</span>
+          <input
+            type="datetime-local"
+            value={createdAt}
+            onInput={(event) => setCreatedAt((event.target as HTMLInputElement).value)}
+          />
+        </label>
         <button class="btn btn-ghost btn-sm tool-button" onClick={() => fileRef.current?.click()} disabled={uploading}>
           <span aria-hidden="true">+</span>
           {uploading ? "上传中" : "附件"}

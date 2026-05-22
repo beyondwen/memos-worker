@@ -26,6 +26,7 @@ import { personalPrimaryNavItems, personalSettingsTabs } from "../web/src/person
 import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
 import { SETTINGS_TABS } from "../web/src/pages/settingsModel";
 import { buildCalendarEventMap, buildCalendarWeeks, shiftMonth } from "../web/src/calendarView";
+import { dateTimeLocalToUnix, unixToDateTimeLocal } from "../web/src/richText";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -232,12 +233,14 @@ describe("editor draft storage", () => {
       content: "hello draft",
       visibility: "PROTECTED",
       attachmentUids: ["a1"],
+      createdAt: "2026-05-22T21:30",
     }, 123);
 
     expect(loadEditorDraft(storage)).toEqual({
       content: "hello draft",
       visibility: "PROTECTED",
       attachmentUids: ["a1"],
+      createdAt: "2026-05-22T21:30",
       savedAt: 123,
     });
   });
@@ -249,11 +252,13 @@ describe("editor draft storage", () => {
       content: "hello",
       visibility: "PRIVATE",
       attachmentUids: [],
+      createdAt: "",
     }, 123);
     saveEditorDraft(storage, {
       content: "   ",
       visibility: "PRIVATE",
       attachmentUids: [],
+      createdAt: "2026-05-22T21:30",
     }, 124);
 
     expect(loadEditorDraft(storage)).toBeNull();
@@ -272,11 +277,22 @@ describe("editor draft storage", () => {
       content: "hello",
       visibility: "PUBLIC",
       attachmentUids: [],
+      createdAt: "",
     }, 123);
 
     clearEditorDraft(storage);
 
     expect(loadEditorDraft(storage)).toBeNull();
+  });
+});
+
+describe("rich editor date helpers", () => {
+  it("converts unix timestamps to datetime-local values", () => {
+    expect(unixToDateTimeLocal(1_779_321_600)).toMatch(/^2026-05-21T/);
+  });
+
+  it("rejects blank datetime-local values", () => {
+    expect(dateTimeLocalToUnix("")).toBeNull();
   });
 });
 

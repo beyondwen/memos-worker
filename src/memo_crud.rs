@@ -168,9 +168,10 @@ pub(crate) async fn create_memo(
     )?;
     let uid = generate_uid("m")?;
     let now = unix_now();
+    let created_ts = memo_created_ts_from_body(&body, now)?;
     let payload = build_memo_payload(&content);
     db(env)?.prepare("INSERT INTO memo (uid, creator_id, created_ts, updated_ts, content, visibility, payload) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(&[uid.clone().into(), js_num(viewer.id), js_num(now), js_num(now), content.into(), visibility.into(), payload.to_string().into()])?
+        .bind(&[uid.clone().into(), js_num(viewer.id), js_num(created_ts), js_num(now), content.into(), visibility.into(), payload.to_string().into()])?
         .run()
         .await?;
     let memo = get_memo_by_uid(env, &uid)
@@ -180,6 +181,41 @@ pub(crate) async fn create_memo(
     emit_memo_event(env, "memo.created", &memo).await;
     let memo = memo_with_attachments(env, memo).await?;
     json_response(json!({ "memo": memo }), 201).map_err(AppError::from)
+}
+
+pub(crate) fn memo_created_ts_from_body(
+    body: &Value,
+    fallback: i64,
+) -> std::result::Result<i64, AppError> {
+    let Some(value) = body
+        .get("createdTs")
+        .or_else(|| body.get("created_ts"))
+        .or_else(|| body.get("createdAt"))
+    else {
+        return Ok(fallback);
+    };
+    if value.is_null() {
+        return Ok(fallback);
+    }
+    let ts = if let Some(ts) = value.as_i64() {
+        ts
+    } else if let Some(raw) = value.as_str() {
+        chrono::NaiveDateTime::parse_from_str(raw.trim(), "%Y-%m-%dT%H:%M")
+            .ok()
+            .or_else(|| {
+                chrono::NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d")
+                    .ok()
+                    .and_then(|date| date.and_hms_opt(0, 0, 0))
+            })
+            .map(|date| date.and_utc().timestamp())
+            .ok_or_else(|| AppError::new(400, "Invalid memo created date"))?
+    } else {
+        return Err(AppError::new(400, "Invalid memo created date"));
+    };
+    if !(0..=4_102_444_800).contains(&ts) {
+        return Err(AppError::new(400, "Invalid memo created date"));
+    }
+    Ok(ts)
 }
 
 pub(crate) async fn memo_subroute(
