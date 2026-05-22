@@ -196,6 +196,15 @@ fn memo_event_retention_cutoff_uses_whole_days() {
 }
 
 #[test]
+fn api_worker_only_handles_backend_paths() {
+    assert!(is_backend_request_path("/api/v1/memos"));
+    assert!(is_backend_request_path("/file/attachments/a_1/name.png"));
+    assert!(!is_backend_request_path("/"));
+    assert!(!is_backend_request_path("/assets/index.js"));
+    assert!(!is_backend_request_path("/memos/m_1"));
+}
+
+#[test]
 fn parse_user_settings_path_splits_identifier_and_key() {
     assert_eq!(
         parse_user_settings_path("alice/settings/theme"),

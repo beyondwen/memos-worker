@@ -16,6 +16,7 @@ import { buildShareUrl, normalizeWebhookForm } from "../web/src/integrationHelpe
 import { buildBulkMemoRequest, bulkMemoActionLabel } from "../web/src/bulkActions";
 import { MEMO_WEBHOOK_EVENTS } from "../web/src/webhookEvents";
 import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../web/src/webhookDeliveryView";
+import { buildApiUrl } from "../web/src/api";
 import { highlightRenderedHtml } from "../web/src/searchHighlight";
 import { applyMemoTemplate, MEMO_TEMPLATES } from "../web/src/memoTemplates";
 import { buildSearchSnippet, scoreSearchMatch } from "../web/src/searchResultView";
@@ -326,6 +327,18 @@ describe("header navigation state", () => {
   it("does not keep home active for other routes", () => {
     expect(isHeaderNavActive("/explore", "/")).toBe(false);
     expect(isHeaderNavActive("/settings", "/")).toBe(false);
+  });
+});
+
+describe("api URL builder", () => {
+  it("keeps same-origin API paths by default", () => {
+    expect(buildApiUrl("/api/v1/memos")).toBe("/api/v1/memos");
+  });
+
+  it("prefixes API paths when a Pages deployment uses a separate backend origin", () => {
+    expect(buildApiUrl("/api/v1/memos", "https://memos-api.example.com/")).toBe(
+      "https://memos-api.example.com/api/v1/memos"
+    );
   });
 });
 

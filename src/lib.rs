@@ -95,8 +95,6 @@ mod store;
 pub(crate) use store::*;
 mod domain;
 pub(crate) use domain::*;
-mod assets;
-pub(crate) use assets::*;
 mod cookies;
 pub(crate) use cookies::*;
 mod crypto;

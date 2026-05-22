@@ -1,6 +1,6 @@
 # Memos Worker
 
-Cloudflare Workers + D1 + R2 版的轻量 Memos 实现。
+Cloudflare Pages + Rust Worker + D1 + R2 版的轻量 Memos 实现。
 
 ## 当前功能
 
@@ -19,7 +19,7 @@ Cloudflare Workers + D1 + R2 版的轻量 Memos 实现。
 ## 当前架构
 
 - 后端入口是 `src/lib.rs`，已经切到 Rust Worker；历史 TypeScript Worker 后端不再作为运行路径保留。
-- 前端入口在 `web/src`，构建产物由 Worker Assets 托管。
+- 前端入口在 `web/src`，构建产物由 Cloudflare Pages 托管。
 - D1 负责业务数据、SSE 补偿事件、Webhook 投递记录和 Inbox；R2 负责附件对象。
 - `/api/v1/sse` 采用短连接事件流加 D1 补偿，客户端通过 `Last-Event-ID` 或 `since` 补拉事件。当前还没有 Durable Object 长连接广播。
 - Memo、评论、表情、引用关系、分享和批量操作会写入 `memo_event`；Memo 相关变更会按创建者触发启用状态的 Webhook。
@@ -30,7 +30,7 @@ Cloudflare Workers + D1 + R2 版的轻量 Memos 实现。
 ```bash
 npm install
 npm run db:migrate:local
-npm run dev
+npm run dev:api
 ```
 
 后端运行在 Rust Worker 上，本地构建需要先安装 Rust 工具链：
@@ -48,7 +48,14 @@ cargo install worker-build
 SERVER_SECRET=dev-only-change-me
 ```
 
-打开 `http://127.0.0.1:8787`，首次进入会创建管理员账号。
+另开一个终端启动前端：
+
+```bash
+npm run dev:web
+```
+
+打开 Vite 输出的本地地址，前端会把 `/api` 和 `/file` 代理到
+`http://127.0.0.1:8787`。首次进入会创建管理员账号。
 
 ## 验证
 
@@ -58,7 +65,7 @@ npm test
 npm run build
 ```
 
-`npm run build` 使用 `wrangler deploy --dry-run --outdir dist`，只验证打包，不会部署。
+`npm run build` 会同时构建 Pages 静态资源和 Rust Worker dry-run，不会部署。
 当前 Rust Worker 构建关闭了 `wasm-opt`，避免本地或 CI 在无法访问 GitHub binaryen release 时失败。
 
 需要验证真实 HTTP 写链路时，可以先启动本地 Worker，再运行端到端冒烟脚本：
@@ -100,6 +107,7 @@ npm run test:e2e
 3. 设置生产密钥：
 
 ```bash
+npm run pages:create
 wrangler secret put SERVER_SECRET
 ```
 
@@ -110,6 +118,24 @@ npm run db:migrate
 npm run deploy
 ```
 
+部署拆分为两部分：
+
+- `npm run deploy:api`：部署 Rust Worker 后端，只承载 `/api/*`、`/file/*`、定时任务、D1 和 R2。
+- `npm run deploy:web`：部署 `dist/static` 到 Cloudflare Pages，默认项目名为 `memos-worker-web`。
+
+推荐在 Cloudflare 上使用同一个自定义域名拆路由：
+
+- `https://memos.example.com/*` 指向 Pages。
+- `https://memos.example.com/api/*` 指向 Rust Worker。
+- `https://memos.example.com/file/*` 指向 Rust Worker。
+
+同域名部署时前端不需要额外配置。若临时使用不同域名，可在构建
+Pages 前设置 `VITE_API_BASE_URL`，例如：
+
+```bash
+VITE_API_BASE_URL=https://memos-worker.example.workers.dev npm run build:web
+```
+
 ## 文档状态
 
-`docs/superpowers/` 下的设计稿和计划主要是历史迁移记录，其中早期文档可能仍描述 TypeScript Worker 或 Durable Object 方案。当前实现以本 README 的 Rust Worker 架构为准。
+`docs/superpowers/` 下的设计稿和计划主要是历史迁移记录，其中早期文档可能仍描述 TypeScript Worker、Worker Assets 或 Durable Object 方案。当前实现以本 README 的 Pages + Rust Worker 架构为准。

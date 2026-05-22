@@ -1,4 +1,10 @@
-let accessToken = localStorage.getItem("memos_access") || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+function getBrowserStorage(): Storage | null {
+  return typeof window === "undefined" ? null : window.localStorage;
+}
+
+let accessToken = getBrowserStorage()?.getItem("memos_access") || "";
 let refreshPromise: Promise<boolean> | null = null;
 let authExpiredHandler: (() => void) | null = null;
 
@@ -8,12 +14,12 @@ export function getToken(): string {
 
 export function setToken(token: string): void {
   accessToken = token;
-  localStorage.setItem("memos_access", token);
+  getBrowserStorage()?.setItem("memos_access", token);
 }
 
 export function clearToken(): void {
   accessToken = "";
-  localStorage.removeItem("memos_access");
+  getBrowserStorage()?.removeItem("memos_access");
 }
 
 export function setAuthExpiredHandler(handler: (() => void) | null): void {
@@ -49,13 +55,13 @@ export async function apiFetch(
     headers.set("Authorization", "Bearer " + accessToken);
   }
 
-  let response = await fetch(path, { ...options, headers });
+  let response = await fetch(buildApiUrl(path), { ...options, headers });
 
   if (response.status === 401 && accessToken) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       headers.set("Authorization", "Bearer " + accessToken);
-      response = await fetch(path, { ...options, headers });
+      response = await fetch(buildApiUrl(path), { ...options, headers });
     } else {
       clearToken();
       authExpiredHandler?.();
@@ -75,7 +81,7 @@ async function tryRefresh(): Promise<boolean> {
 
 async function doRefresh(): Promise<boolean> {
   try {
-    const res = await fetch("/api/v1/auth/refresh", {
+    const res = await fetch(buildApiUrl("/api/v1/auth/refresh"), {
       method: "POST",
       credentials: "include",
     });
@@ -89,4 +95,9 @@ async function doRefresh(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export function buildApiUrl(path: string, baseUrl: string = API_BASE_URL): string {
+  if (!baseUrl.trim() || /^https?:\/\//i.test(path)) return path;
+  return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
