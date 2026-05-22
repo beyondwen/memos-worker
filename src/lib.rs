@@ -2442,6 +2442,15 @@ async fn list_users(env: &Env, viewer: &Viewer) -> std::result::Result<Response,
 }
 
 async fn user_subroute(req: &mut Request, env: &Env, viewer: &Viewer, identifier: &str, method: Method) -> std::result::Result<Response, AppError> {
+    if let Some((user_identifier, key)) = parse_user_settings_path(identifier) {
+        return match (key, method) {
+            (None, Method::Get) => list_user_settings(env, viewer, user_identifier).await,
+            (Some(setting_key), Method::Get) => get_user_setting(env, viewer, user_identifier, setting_key).await,
+            (Some(setting_key), Method::Patch) => update_user_setting(req, env, viewer, user_identifier, setting_key).await,
+            _ => Err(AppError::new(405, "Method not allowed")),
+        };
+    }
+
     match method {
         Method::Get => {
             let user = resolve_user(env, identifier).await?.ok_or_else(|| AppError::new(404, "User not found"))?;
@@ -2453,6 +2462,19 @@ async fn user_subroute(req: &mut Request, env: &Env, viewer: &Viewer, identifier
         Method::Patch => update_user(req, env, viewer, identifier).await,
         Method::Delete => delete_user(env, viewer, identifier).await,
         _ => Err(AppError::new(405, "Method not allowed")),
+    }
+}
+
+fn parse_user_settings_path(path: &str) -> Option<(&str, Option<&str>)> {
+    let (identifier, rest) = path.split_once("/settings")?;
+    if identifier.is_empty() {
+        return None;
+    }
+    let key = rest.strip_prefix('/').filter(|value| !value.is_empty());
+    if rest.is_empty() || key.is_some() {
+        Some((identifier, key))
+    } else {
+        None
     }
 }
 
@@ -2496,6 +2518,45 @@ async fn delete_user(env: &Env, viewer: &Viewer, identifier: &str) -> std::resul
         .run()
         .await?;
     json_response(json!({ "ok": true }), 200).map_err(AppError::from)
+}
+
+async fn get_user_setting(env: &Env, viewer: &Viewer, identifier: &str, key: &str) -> std::result::Result<Response, AppError> {
+    let user = resolve_user(env, identifier).await?.ok_or_else(|| AppError::new(404, "User not found"))?;
+    if viewer.role != "ADMIN" && viewer.id != user.id {
+        return Err(AppError::new(403, "Forbidden"));
+    }
+    let value: Option<String> = db(env)?.prepare("SELECT value FROM user_setting WHERE user_id = ? AND key = ?")
+        .bind(&[js_num(user.id), key.into()])?
+        .first(Some("value"))
+        .await?;
+    json_response(json!({ "key": key, "value": value.unwrap_or_default() }), 200).map_err(AppError::from)
+}
+
+async fn list_user_settings(env: &Env, viewer: &Viewer, identifier: &str) -> std::result::Result<Response, AppError> {
+    let user = resolve_user(env, identifier).await?.ok_or_else(|| AppError::new(404, "User not found"))?;
+    if viewer.role != "ADMIN" && viewer.id != user.id {
+        return Err(AppError::new(403, "Forbidden"));
+    }
+    let rows = db(env)?.prepare("SELECT key, value FROM user_setting WHERE user_id = ?")
+        .bind(&[js_num(user.id)])?
+        .all()
+        .await?;
+    let settings: Vec<Value> = rows.results()?;
+    json_response(json!({ "settings": settings }), 200).map_err(AppError::from)
+}
+
+async fn update_user_setting(req: &mut Request, env: &Env, viewer: &Viewer, identifier: &str, key: &str) -> std::result::Result<Response, AppError> {
+    let user = resolve_user(env, identifier).await?.ok_or_else(|| AppError::new(404, "User not found"))?;
+    if viewer.role != "ADMIN" && viewer.id != user.id {
+        return Err(AppError::new(403, "Forbidden"));
+    }
+    let body: Value = req.json().await.map_err(|_| AppError::new(400, "Invalid JSON"))?;
+    let value = body.get("value").and_then(Value::as_str).unwrap_or("").to_string();
+    db(env)?.prepare("INSERT INTO user_setting (user_id, key, value) VALUES (?, ?, ?) ON CONFLICT (user_id, key) DO UPDATE SET value = excluded.value")
+        .bind(&[js_num(user.id), key.into(), value.clone().into()])?
+        .run()
+        .await?;
+    json_response(json!({ "key": key, "value": value }), 200).map_err(AppError::from)
 }
 
 async fn user_stats(env: &Env, viewer: &Viewer, identifier: &str) -> std::result::Result<Response, AppError> {
@@ -3014,6 +3075,19 @@ mod tests {
         assert!(payload.starts_with("retry: 30000\n"));
         assert!(payload.contains("event: ready\n"));
         assert!(payload.contains("\"userId\":7"));
+    }
+
+    #[test]
+    fn parse_user_settings_path_splits_identifier_and_key() {
+        assert_eq!(
+            parse_user_settings_path("alice/settings/theme"),
+            Some(("alice", Some("theme")))
+        );
+        assert_eq!(
+            parse_user_settings_path("alice/settings"),
+            Some(("alice", None))
+        );
+        assert_eq!(parse_user_settings_path("alice"), None);
     }
 
     fn sample_memo() -> DbMemo {
