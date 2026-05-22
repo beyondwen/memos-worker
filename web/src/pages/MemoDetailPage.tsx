@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
 import { api, getToken } from "../api";
-import { MarkdownContent } from "../components/MarkdownContent";
 import { useFeedback } from "../components/Feedback";
-import { AttachmentList } from "../components/AttachmentList";
 import { ShareManager } from "../components/ShareManager";
 import { RelationPanel } from "../components/RelationPanel";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 import { buildShareUrl } from "../integrationHelpers";
 import type { CurrentUser } from "../App";
 import type { Memo, Reaction } from "../components/MemoCard";
+import {
+  DetailCommentsSection,
+  DetailMemoCard,
+  DetailToolbar,
+} from "./MemoDetailSections";
 
 interface MemoDetailPageProps {
   path?: string;
@@ -218,17 +221,6 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
     }
   };
 
-  const formatDate = (ts: number) => {
-    const d = new Date(ts * 1000);
-    return d.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
   if (loading) {
     return (
       <div class="loading-screen">
@@ -254,113 +246,40 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
 
   const isOwner = currentUser?.id === memo.creator.id;
   const isArchived = memo.rowStatus === "ARCHIVED";
+  const backHome = (event: Event) => {
+    event.preventDefault();
+    route("/");
+  };
 
   return (
     <div class="memo-detail-page">
-      <div class="home-toolbar page-toolbar">
-        <div>
-          <div class="home-kicker">Memo</div>
-          <h1>备忘录详情</h1>
-          <p>{formatDate(memo.createdTs)}</p>
-        </div>
-        <div class="detail-toolbar-actions">
-          {isOwner && (
-            isArchived ? (
-              <>
-                <button class="btn btn-secondary btn-sm" onClick={handleRestore}>
-                  恢复
-                </button>
-                <button class="btn btn-danger btn-sm" onClick={handlePurge}>
-                  彻底删除
-                </button>
-              </>
-            ) : (
-              <button class="btn btn-danger btn-sm" onClick={handleArchive}>
-                删除
-              </button>
-            )
-          )}
-          <a
-            href="/"
-            class="tag-clear"
-            onClick={(e) => { e.preventDefault(); route("/"); }}
-          >
-            返回首页
-          </a>
-        </div>
-      </div>
+      <DetailToolbar
+        memo={memo}
+        isOwner={!!isOwner}
+        isArchived={isArchived}
+        onArchive={handleArchive}
+        onRestore={handleRestore}
+        onPurge={handlePurge}
+        onBackHome={backHome}
+      />
 
-      <div class="memo-card">
-        <div class="memo-header">
-          <span class="memo-creator">
-            {memo.creator.nickname || memo.creator.username}
-          </span>
-          <span class="memo-time">{formatDate(memo.createdTs)}</span>
-          <span class={`memo-visibility vis-${memo.visibility}`}>
-            {memo.visibility.toLowerCase()}
-          </span>
-        </div>
-
-        <MarkdownContent content={memo.content} />
-
-        <AttachmentList attachments={memo.attachments} />
-
-        {reactions.length > 0 && (
-          <div class="memo-reactions">
-            {reactions.map((r) => {
-              const isMine = currentUser && r.creator.id === currentUser.id;
-              return (
-                <button
-                  key={r.id}
-                  class={`reaction-chip${isMine ? " mine" : ""}`}
-                  onClick={() => isMine && removeReaction(r.id)}
-                  title={r.creator.username}
-                >
-                  {r.reactionType}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {showReactionPicker && (
-          <div class="memo-reactions reaction-picker">
-            {EMOJI_OPTIONS.map((emoji) => (
-              <button
-                key={emoji}
-                class="reaction-chip"
-                onClick={() => addReaction(emoji)}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {showShare && shareUrl && (
-          <div class="share-url-box">
-            <input type="text" readOnly value={shareUrl} onClick={(e) => (e.target as HTMLInputElement).select()} />
-            <button
-              class="btn btn-ghost btn-sm"
-              onClick={() => {
-                navigator.clipboard.writeText(shareUrl);
-                notify("分享链接已复制", "success");
-              }}
-            >
-              复制
-            </button>
-          </div>
-        )}
-
-        <div class="memo-actions">
-          <button onClick={() => setShowReactionPicker(!showReactionPicker)}>
-            表态
-          </button>
-          <button onClick={handleShare}>
-            分享
-          </button>
-        </div>
-      </div>
+      <DetailMemoCard
+        memo={memo}
+        currentUser={currentUser}
+        reactions={reactions}
+        showReactionPicker={showReactionPicker}
+        emojiOptions={EMOJI_OPTIONS}
+        showShare={showShare}
+        shareUrl={shareUrl}
+        onRemoveReaction={removeReaction}
+        onAddReaction={addReaction}
+        onToggleReactionPicker={() => setShowReactionPicker(!showReactionPicker)}
+        onShare={handleShare}
+        onCopyShare={() => {
+          navigator.clipboard.writeText(shareUrl);
+          notify("分享链接已复制", "success");
+        }}
+      />
 
       {currentUser?.id === memo.creator.id && (
         <ShareManager memoUid={memo.uid} />
@@ -368,48 +287,14 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
 
       <RelationPanel memoUid={memo.uid} canEdit={currentUser?.id === memo.creator.id} />
 
-      <div class="comments-section">
-        <h3>评论 ({comments.length})</h3>
-
-        {comments.map((c) => (
-          <div key={c.uid} class="memo-card comment-card">
-            <div class="memo-header">
-              <span class="memo-creator">
-                {c.creator.nickname || c.creator.username}
-              </span>
-              <span class="memo-time">{formatDate(c.createdTs)}</span>
-            </div>
-            <MarkdownContent content={c.content} />
-          </div>
-        ))}
-
-        {comments.length === 0 && (
-          <div class="muted-line">
-            暂无评论。
-          </div>
-        )}
-
-        {currentUser && (
-          <div class="comment-form">
-            <textarea
-              class="editor-textarea"
-              placeholder="写评论..."
-              value={commentContent}
-              onInput={(e) =>
-                setCommentContent((e.target as HTMLTextAreaElement).value)
-              }
-              rows={3}
-            />
-            <button
-              class="btn btn-primary btn-sm"
-              onClick={handleAddComment}
-              disabled={commenting || !commentContent.trim()}
-            >
-              {commenting ? "发布中..." : "评论"}
-            </button>
-          </div>
-        )}
-      </div>
+      <DetailCommentsSection
+        comments={comments}
+        currentUser={currentUser}
+        commentContent={commentContent}
+        commenting={commenting}
+        onCommentContentChange={setCommentContent}
+        onAddComment={handleAddComment}
+      />
     </div>
   );
 }
