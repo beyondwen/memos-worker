@@ -163,6 +163,21 @@ fn memo_webhook_body_wraps_event_timestamp_and_public_memo() {
 }
 
 #[test]
+fn share_payload_includes_database_id_for_delete_route() {
+    assert_eq!(
+        share_payload(9, "s_1", "m_1", 1779345600, Some(1779349200)),
+        json!({
+            "id": 9,
+            "uid": "s_1",
+            "memoUid": "m_1",
+            "createdTs": 1779345600,
+            "expiresTs": 1779349200,
+            "url": "/api/v1/shares/s_1"
+        })
+    );
+}
+
+#[test]
 fn comment_inbox_message_points_to_parent_and_comment() {
     assert_eq!(
         comment_inbox_message("m_parent", "m_comment"),

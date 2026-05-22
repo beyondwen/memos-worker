@@ -26,6 +26,12 @@ pub(crate) async fn create_share(
         ])?
         .run()
         .await?;
+    let share_id = db(env)?
+        .prepare("SELECT id FROM memo_share WHERE uid = ?")
+        .bind(&[share_uid.clone().into()])?
+        .first::<i64>(Some("id"))
+        .await?
+        .ok_or_else(|| AppError::new(500, "Failed to create share"))?;
     emit_memo_change(
         env,
         "share.created",
@@ -35,13 +41,7 @@ pub(crate) async fn create_share(
     .await;
     json_response(
         json!({
-            "share": {
-                "uid": share_uid,
-                "memoUid": memo.uid,
-                "createdTs": now,
-                "expiresTs": expires_ts,
-                "url": format!("/api/v1/shares/{}", share_uid)
-            }
+            "share": share_payload(share_id, &share_uid, &memo.uid, now, expires_ts)
         }),
         201,
     )
@@ -68,17 +68,33 @@ pub(crate) async fn list_shares(
     let payload: Vec<Value> = shares
         .into_iter()
         .map(|share| {
-            json!({
-                "id": share.id,
-                "uid": share.uid,
-                "memoUid": memo.uid,
-                "createdTs": share.created_ts,
-                "expiresTs": share.expires_ts,
-                "url": format!("/api/v1/shares/{}", share.uid)
-            })
+            share_payload(
+                share.id,
+                &share.uid,
+                &memo.uid,
+                share.created_ts,
+                share.expires_ts,
+            )
         })
         .collect();
     json_response(json!({ "shares": payload }), 200).map_err(AppError::from)
+}
+
+pub(crate) fn share_payload(
+    id: i64,
+    uid: &str,
+    memo_uid: &str,
+    created_ts: i64,
+    expires_ts: Option<i64>,
+) -> Value {
+    json!({
+        "id": id,
+        "uid": uid,
+        "memoUid": memo_uid,
+        "createdTs": created_ts,
+        "expiresTs": expires_ts,
+        "url": format!("/api/v1/shares/{}", uid)
+    })
 }
 
 pub(crate) async fn delete_share(
