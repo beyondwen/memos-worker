@@ -11,7 +11,7 @@ Cloudflare Workers + D1 + R2 版的轻量 Memos 实现。
 - 标签解析和按标签筛选
 - R2 附件上传、绑定 memo、鉴权下载
 - 管理员 JSON 导入/导出
-- Durable Object SSE 推送
+- Rust SSE 端点和迁移进度流
 - 内置最小 Web UI
 
 ## 本地运行
