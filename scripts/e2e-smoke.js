@@ -7,12 +7,14 @@ export function loadConfig(env = process.env) {
   const baseUrl = (env.MEMOS_E2E_BASE_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
   const username = env.MEMOS_E2E_USERNAME || "";
   const password = env.MEMOS_E2E_PASSWORD || "";
+  const webhookUrl = (env.MEMOS_E2E_WEBHOOK_URL || "").trim();
   const keepData = env.MEMOS_E2E_KEEP_DATA === "1" || env.MEMOS_E2E_KEEP_DATA === "true";
   const timeoutMs = Number.parseInt(env.MEMOS_E2E_TIMEOUT_MS || `${DEFAULT_TIMEOUT_MS}`, 10);
   return {
     baseUrl,
     username,
     password,
+    webhookUrl,
     keepData,
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS,
   };
@@ -32,6 +34,29 @@ export function authHeaders(token) {
   };
 }
 
+export function parseSseEvents(text) {
+  return text
+    .split(/\n\n+/)
+    .map((chunk) => {
+      const event = {};
+      const dataLines = [];
+      for (const line of chunk.split(/\n/)) {
+        if (!line || line.startsWith(":")) continue;
+        const index = line.indexOf(":");
+        const field = index >= 0 ? line.slice(0, index) : line;
+        const value = index >= 0 ? line.slice(index + 1).trimStart() : "";
+        if (field === "id") event.id = value;
+        if (field === "event") event.event = value;
+        if (field === "data") dataLines.push(value);
+      }
+      if (dataLines.length > 0) {
+        event.data = JSON.parse(dataLines.join("\n"));
+      }
+      return event.event || event.id || event.data ? event : null;
+    })
+    .filter(Boolean);
+}
+
 export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fetch) {
   const missing = missingConfig(config);
   if (missing.length > 0) {
@@ -43,15 +68,26 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
 
   const client = new SmokeClient(config, fetchImpl);
   const created = [];
+  const cleanupInboxIds = [];
+  let webhookId = null;
   let primaryMemo;
   try {
     await client.signIn();
+    if (config.webhookUrl) {
+      webhookId = await client.createWebhook(config.webhookUrl);
+    }
+
     primaryMemo = await client.createMemo(`e2e primary ${Date.now()}`);
     created.push(primaryMemo.uid);
     const relatedMemo = await client.createMemo(`e2e related ${Date.now()}`);
     created.push(relatedMemo.uid);
 
-    await client.createComment(primaryMemo.uid, "e2e comment");
+    const comment = await client.createComment(primaryMemo.uid, "e2e comment");
+    created.push(comment.uid);
+    const inboxItem = await client.findCommentInbox(primaryMemo.uid, comment.uid);
+    assert(inboxItem, "comment inbox notification was not found");
+    cleanupInboxIds.push(inboxItem.id);
+
     await client.upsertReaction(primaryMemo.uid, "👍");
     const reactions = await client.listReactions(primaryMemo.uid);
     assert(reactions.some((reaction) => reaction.reactionType === "👍"), "reaction was not persisted");
@@ -76,9 +112,42 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
     const archived = await client.getMemo(primaryMemo.uid);
     assert(archived.rowStatus === "ARCHIVED", "bulk archive did not archive memo");
 
-    return { ok: true, memoUids: created };
+    const sseEvents = await client.fetchSseEvents();
+    assertEvent(sseEvents, "memo.created", primaryMemo.uid);
+    assertEvent(sseEvents, "memo.comment.created", primaryMemo.uid);
+    assertEvent(sseEvents, "reaction.upserted", primaryMemo.uid);
+    assertEvent(sseEvents, "share.created", primaryMemo.uid);
+    assertEvent(sseEvents, "share.deleted", primaryMemo.uid);
+    assertEvent(sseEvents, "memo.bulk.updated", primaryMemo.uid);
+
+    let webhookDeliveries = [];
+    if (webhookId) {
+      webhookDeliveries = await client.listWebhookDeliveries(webhookId);
+      assert(
+        webhookDeliveries.some((delivery) => delivery.event === "memo.created"),
+        "webhook delivery for memo.created was not found",
+      );
+    }
+
+    return {
+      ok: true,
+      memoUids: created,
+      sseEvents: sseEvents.map((event) => event.event).filter(Boolean),
+      inboxIds: cleanupInboxIds,
+      webhookDeliveryCount: webhookDeliveries.length,
+    };
   } finally {
     if (!config.keepData && client.token) {
+      for (const id of cleanupInboxIds) {
+        await client.deleteInboxItem(id).catch((error) => {
+          console.warn(`cleanup inbox failed for ${id}: ${error.message}`);
+        });
+      }
+      if (webhookId) {
+        await client.deleteWebhook(webhookId).catch((error) => {
+          console.warn(`cleanup webhook failed for ${webhookId}: ${error.message}`);
+        });
+      }
       for (const uid of created.reverse()) {
         await client.purgeMemo(uid).catch((error) => {
           console.warn(`cleanup failed for ${uid}: ${error.message}`);
@@ -126,6 +195,20 @@ class SmokeClient {
     });
     assert(body.memo?.uid, "create comment did not return memo");
     return body.memo;
+  }
+
+  async findCommentInbox(memoUid, commentUid) {
+    const body = await this.authed("/api/v1/inbox");
+    assert(Array.isArray(body.inbox), "inbox response did not return inbox");
+    return body.inbox.find((item) => (
+      item.message?.type === "memo.comment.created"
+      && item.message?.memoUid === memoUid
+      && item.message?.commentUid === commentUid
+    ));
+  }
+
+  async deleteInboxItem(id) {
+    return this.authed(`/api/v1/inbox/${id}`, { method: "DELETE" });
   }
 
   async upsertReaction(uid, reactionType) {
@@ -189,6 +272,32 @@ class SmokeClient {
     });
   }
 
+  async fetchSseEvents() {
+    const body = await this.request(`/api/v1/sse?access_token=${encodeURIComponent(this.token)}`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+    }, "text");
+    return parseSseEvents(body);
+  }
+
+  async createWebhook(url) {
+    const body = await this.authed("/api/v1/webhooks", {
+      method: "POST",
+      body: { name: `e2e-${Date.now()}`, url },
+    });
+    assert(body.webhook?.id, "create webhook did not return id");
+    return body.webhook.id;
+  }
+
+  async deleteWebhook(id) {
+    return this.authed(`/api/v1/webhooks/${id}`, { method: "DELETE" });
+  }
+
+  async listWebhookDeliveries(webhookId) {
+    const body = await this.authed(`/api/v1/webhooks/deliveries?webhookId=${webhookId}`);
+    assert(Array.isArray(body.deliveries), "webhook deliveries response did not return deliveries");
+    return body.deliveries;
+  }
+
   async purgeMemo(uid) {
     return this.authed(`/api/v1/memos/${encodeURIComponent(uid)}?purge=true`, {
       method: "DELETE",
@@ -202,7 +311,7 @@ class SmokeClient {
     });
   }
 
-  async request(path, options = {}) {
+  async request(path, options = {}, responseType = "json") {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
     try {
@@ -219,10 +328,11 @@ class SmokeClient {
         signal: controller.signal,
       });
       const text = await response.text();
-      const payload = text ? JSON.parse(text) : {};
       if (!response.ok) {
         throw new Error(`${options.method || "GET"} ${path} failed: ${response.status} ${text}`);
       }
+      if (responseType === "text") return text;
+      const payload = text ? JSON.parse(text) : {};
       return payload;
     } finally {
       clearTimeout(timer);
@@ -232,6 +342,13 @@ class SmokeClient {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function assertEvent(events, eventType, memoUid) {
+  assert(
+    events.some((event) => event.event === eventType && event.data?.name === `memos/${memoUid}`),
+    `SSE event ${eventType} for ${memoUid} was not found`,
+  );
 }
 
 async function main() {
