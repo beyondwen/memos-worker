@@ -359,6 +359,27 @@ fn memo_page_tokens_round_trip_cursor_fields() {
 }
 
 #[test]
+fn memo_date_filters_build_utc_day_bounds() {
+    let url = Url::parse(
+        "https://memos.local/api/v1/memos?created_after=2026-05-21&created_before=2026-05-21",
+    )
+    .expect("url");
+
+    assert_eq!(memo_created_after_ts(&url).unwrap(), Some(1_779_321_600));
+    assert_eq!(
+        memo_created_before_exclusive_ts(&url).unwrap(),
+        Some(1_779_408_000)
+    );
+}
+
+#[test]
+fn memo_date_filters_reject_invalid_dates() {
+    let url = Url::parse("https://memos.local/api/v1/memos?created_after=2026-13-01").expect("url");
+
+    assert!(memo_created_after_ts(&url).is_err());
+}
+
+#[test]
 fn memo_tags_from_payload_normalizes_unique_tags() {
     assert_eq!(
         memo_tags_from_payload(r##"{"tags":["work"," work ","","life","work"]}"##),

@@ -25,6 +25,8 @@ interface MemoListProps {
   search?: string;
   propertyFilter?: MemoPropertyFilter;
   advancedFilter?: string;
+  createdAfter?: string;
+  createdBefore?: string;
   refreshKey?: number;
   emptyText?: string;
 }
@@ -38,6 +40,8 @@ export function MemoList({
   search,
   propertyFilter,
   advancedFilter,
+  createdAfter,
+  createdBefore,
   refreshKey,
   emptyText = "暂无备忘录",
 }: MemoListProps) {
@@ -63,11 +67,13 @@ export function MemoList({
         search,
         propertyFilter,
         advancedFilter,
+        createdAfter,
+        createdBefore,
         pageToken,
         pageSize: 20,
       });
     },
-    [advancedFilter, endpoint, propertyFilter, search, state, tag, visibility]
+    [advancedFilter, createdAfter, createdBefore, endpoint, propertyFilter, search, state, tag, visibility]
   );
 
   const fetchMemos = useCallback(

@@ -10,6 +10,8 @@ interface MemoListPathOptions {
   search?: string;
   propertyFilter?: MemoPropertyFilter;
   advancedFilter?: string;
+  createdAfter?: string;
+  createdBefore?: string;
   pageToken?: string;
   pageSize?: number;
 }
@@ -36,6 +38,8 @@ export function buildMemoListPath(options: MemoListPathOptions = {}): string {
   if (options.visibility) url.searchParams.set("visibility", options.visibility);
   if (options.state) url.searchParams.set("state", options.state);
   if (filter) url.searchParams.set("filter", filter);
+  if (options.createdAfter) url.searchParams.set("created_after", options.createdAfter);
+  if (options.createdBefore) url.searchParams.set("created_before", options.createdBefore);
   if (options.pageToken) url.searchParams.set("page_token", options.pageToken);
   url.searchParams.set("page_size", String(options.pageSize ?? 20));
 

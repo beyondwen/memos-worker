@@ -51,6 +51,8 @@ describe("memo list query builder", () => {
       state: "ARCHIVED",
       search: 'hello "memo"',
       propertyFilter: "has_code",
+      createdAfter: "2026-05-21",
+      createdBefore: "2026-05-21",
       pageToken: "cursor-1",
       pageSize: 30,
     });
@@ -62,6 +64,8 @@ describe("memo list query builder", () => {
     expect(url.searchParams.get("state")).toBe("ARCHIVED");
     expect(url.searchParams.get("page_token")).toBe("cursor-1");
     expect(url.searchParams.get("page_size")).toBe("30");
+    expect(url.searchParams.get("created_after")).toBe("2026-05-21");
+    expect(url.searchParams.get("created_before")).toBe("2026-05-21");
     expect(url.searchParams.get("filter")).toBe('content.contains("hello \\"memo\\"") && has_code');
   });
 

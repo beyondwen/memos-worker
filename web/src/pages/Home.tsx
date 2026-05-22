@@ -248,7 +248,7 @@ export function Home({ currentUser }: HomeProps) {
 
         {viewState === "NORMAL" && <MemoEditor onCreated={handleCreated} />}
         <MemoList
-          key={`${activeTag}-${viewState}-${search}-${visibility}-${propertyFilter}-${advancedFilter}-${refreshKey}`}
+          key={`${activeTag}-${viewState}-${search}-${visibility}-${propertyFilter}-${advancedFilter}-${createdAfter}-${createdBefore}-${refreshKey}`}
           currentUser={currentUser}
           tag={activeTag || undefined}
           state={viewState}
@@ -256,6 +256,8 @@ export function Home({ currentUser }: HomeProps) {
           visibility={visibility || undefined}
           propertyFilter={propertyFilter || undefined}
           advancedFilter={advancedFilter}
+          createdAfter={createdAfter}
+          createdBefore={createdBefore}
           refreshKey={refreshKey}
           emptyText={viewState === "ARCHIVED" ? "回收站为空" : "暂无备忘录"}
         />

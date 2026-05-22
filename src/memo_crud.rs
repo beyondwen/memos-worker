@@ -43,6 +43,14 @@ pub(crate) async fn list_memos(
         where_sql.push("EXISTS (SELECT 1 FROM memo_search WHERE memo_search.memo_id = memo.id AND memo_search.content LIKE ? ESCAPE '\\')".to_string());
         values.push(format!("%{}%", escape_like(&search)).into());
     }
+    if let Some(start_ts) = memo_created_after_ts(url)? {
+        where_sql.push("memo.created_ts >= ?".to_string());
+        values.push(js_num(start_ts));
+    }
+    if let Some(end_ts) = memo_created_before_exclusive_ts(url)? {
+        where_sql.push("memo.created_ts < ?".to_string());
+        values.push(js_num(end_ts));
+    }
     if let Some(cursor) = memo_page_cursor(url) {
         where_sql.push("(memo.pinned < ? OR (memo.pinned = ? AND memo.created_ts < ?) OR (memo.pinned = ? AND memo.created_ts = ? AND memo.id < ?))".to_string());
         values.extend([
@@ -109,6 +117,30 @@ pub(crate) fn parse_memo_page_token(token: &str) -> Option<MemoPageCursor> {
 
 pub(crate) fn build_memo_page_token(memo: &DbMemo) -> String {
     format!("{}:{}:{}", memo.pinned, memo.created_ts, memo.id)
+}
+
+pub(crate) fn memo_created_after_ts(url: &Url) -> std::result::Result<Option<i64>, AppError> {
+    query_param(url, "created_after")
+        .or_else(|| query_param(url, "createdAfter"))
+        .map(|value| memo_date_start_ts(&value))
+        .transpose()
+}
+
+pub(crate) fn memo_created_before_exclusive_ts(
+    url: &Url,
+) -> std::result::Result<Option<i64>, AppError> {
+    query_param(url, "created_before")
+        .or_else(|| query_param(url, "createdBefore"))
+        .map(|value| memo_date_start_ts(&value).map(|ts| ts + 86_400))
+        .transpose()
+}
+
+fn memo_date_start_ts(value: &str) -> std::result::Result<i64, AppError> {
+    chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
+        .ok()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+        .map(|date| date.and_utc().timestamp())
+        .ok_or_else(|| AppError::new(400, "Invalid memo date filter"))
 }
 
 pub(crate) async fn create_memo(
