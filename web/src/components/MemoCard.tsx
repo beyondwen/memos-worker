@@ -8,6 +8,14 @@ import { MemoActions } from "./MemoActions";
 import { buildShareUrl } from "../integrationHelpers";
 import { shouldOpenMemoDetailFromCardClick } from "../cardClick";
 import type { CurrentUser } from "../App";
+import {
+  CommentsSection,
+  MemoCardEditor,
+  MemoCardHeader,
+  ReactionList,
+  ReactionPicker,
+  ShareUrlBox,
+} from "./MemoCardSections";
 
 export interface Memo {
   name: string;
@@ -82,17 +90,6 @@ export function MemoCard({
   const [showShare, setShowShare] = useState(false);
 
   const isOwner = currentUser && memo.creator.id === currentUser.id;
-
-  const formatDate = (ts: number) => {
-    const d = new Date(ts * 1000);
-    return d.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
 
   const handleSave = async () => {
     const trimmed = editContent.trim();
@@ -306,9 +303,6 @@ export function MemoCard({
     openDetail();
   };
 
-  const visLabel = { PRIVATE: "私有", PROTECTED: "登录可见", PUBLIC: "公开" };
-  const visClass = { PRIVATE: "vis-PRIVATE", PROTECTED: "vis-PROTECTED", PUBLIC: "vis-PUBLIC" };
-
   return (
     <div
       class={`memo-card${editing ? "" : " clickable"}`}
@@ -318,130 +312,54 @@ export function MemoCard({
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
     >
-      <div class="memo-header">
-        <span class="memo-creator">{memo.creator.nickname || memo.creator.username}</span>
-        <span class="memo-dot">·</span>
-        <span class="memo-time">{formatDate(memo.createdTs)}</span>
-        {memo.visibility !== "PRIVATE" && (
-          <span class={`memo-visibility ${visClass[memo.visibility]}`}>
-            {visLabel[memo.visibility]}
-          </span>
-        )}
-        {memo.pinned && <span style={{ fontSize: "0.75rem", color: "var(--zinc-400)" }}>📌</span>}
-      </div>
+      <MemoCardHeader memo={memo} />
 
       {editing ? (
-        <div>
-          <textarea
-            class="editor-textarea"
-            value={editContent}
-            onInput={(e) => setEditContent((e.target as HTMLTextAreaElement).value)}
-            style={{ minHeight: "80px", border: "1px solid var(--zinc-200)", borderRadius: "6px", padding: "10px 12px" }}
-          />
-          <div class="editor-actions">
-            <select value={editVisibility} onChange={(e) => setEditVisibility((e.target as HTMLSelectElement).value as "PRIVATE" | "PROTECTED" | "PUBLIC")}>
-              <option value="PRIVATE">私有</option>
-              <option value="PROTECTED">登录可见</option>
-              <option value="PUBLIC">公开</option>
-            </select>
-            <div class="spacer" />
-            <button class="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>取消</button>
-            <button class="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
-              {saving ? "保存中..." : "保存"}
-            </button>
-          </div>
-        </div>
+        <MemoCardEditor
+          content={editContent}
+          visibility={editVisibility}
+          saving={saving}
+          onContentChange={setEditContent}
+          onVisibilityChange={setEditVisibility}
+          onCancel={() => setEditing(false)}
+          onSave={handleSave}
+        />
       ) : (
         <MarkdownContent content={memo.content} highlight={highlight} />
       )}
 
       <AttachmentList attachments={memo.attachments} />
 
-      {reactions.length > 0 && (
-        <div class="memo-reactions">
-          {reactions.map((r) => {
-            const isMine = currentUser && r.creator.id === currentUser.id;
-            return (
-              <button
-                key={r.id}
-                class={`reaction-chip${isMine ? " mine" : ""}`}
-                onClick={() => isMine && removeReaction(r.id)}
-                title={r.creator.username}
-              >
-                {r.reactionType}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <ReactionList
+        reactions={reactions}
+        currentUser={currentUser}
+        onRemove={removeReaction}
+      />
 
       {showReactionPicker && (
-        <div class="memo-reactions" style={{ marginTop: "6px" }}>
-          {EMOJI_OPTIONS.map((emoji) => (
-            <button
-              key={emoji}
-              class="reaction-chip"
-              onClick={() => addReaction(emoji)}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
+        <ReactionPicker options={EMOJI_OPTIONS} onAdd={addReaction} />
       )}
 
       {showComments && (
-        <div class="comments-section" style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--zinc-100)" }}>
-          {comments.length > 0 ? (
-            comments.map((c) => (
-              <div key={c.uid} style={{ padding: "10px 0", borderBottom: "1px solid var(--zinc-50)" }}>
-                <div class="memo-header" style={{ marginBottom: 4 }}>
-                  <span class="memo-creator" style={{ fontSize: "0.8125rem" }}>
-                    {c.creator.nickname || c.creator.username}
-                  </span>
-                  <span class="memo-dot">·</span>
-                  <span class="memo-time">{formatDate(c.createdTs)}</span>
-                </div>
-                <MarkdownContent content={c.content} />
-              </div>
-            ))
-          ) : (
-            commentsLoaded && (
-              <div style={{ color: "var(--zinc-300)", fontSize: "0.8125rem", padding: "8px 0" }}>
-                暂无评论
-              </div>
-            )
-          )}
-
-          {currentUser && (
-            <div class="comment-form">
-              <textarea
-                class="editor-textarea"
-                placeholder="写评论..."
-                value={commentContent}
-                onInput={(e) => setCommentContent((e.target as HTMLTextAreaElement).value)}
-                style={{ minHeight: "56px" }}
-              />
-              <button class="btn btn-primary btn-sm" onClick={handleAddComment} disabled={commenting || !commentContent.trim()}>
-                {commenting ? "发布中..." : "评论"}
-              </button>
-            </div>
-          )}
-        </div>
+        <CommentsSection
+          comments={comments}
+          commentsLoaded={commentsLoaded}
+          currentUser={currentUser}
+          commentContent={commentContent}
+          commenting={commenting}
+          onCommentContentChange={setCommentContent}
+          onAddComment={handleAddComment}
+        />
       )}
 
       {showShare && shareUrl && (
-        <div class="share-url-box">
-          <input type="text" readOnly value={shareUrl} onClick={(e) => (e.target as HTMLInputElement).select()} />
-          <button
-            class="btn btn-ghost btn-sm"
-            onClick={() => {
-              navigator.clipboard.writeText(shareUrl);
-              notify("分享链接已复制", "success");
-            }}
-          >
-            复制
-          </button>
-        </div>
+        <ShareUrlBox
+          shareUrl={shareUrl}
+          onCopy={() => {
+            navigator.clipboard.writeText(shareUrl);
+            notify("分享链接已复制", "success");
+          }}
+        />
       )}
 
       {!selectionMode && (
