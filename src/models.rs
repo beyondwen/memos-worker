@@ -1,12 +1,17 @@
+use super::*;
+
 #[derive(Debug)]
-struct AppError {
-    status: u16,
-    message: String,
+pub(crate) struct AppError {
+    pub(crate) status: u16,
+    pub(crate) message: String,
 }
 
 impl AppError {
-    fn new(status: u16, message: impl Into<String>) -> Self {
-        Self { status, message: message.into() }
+    pub(crate) fn new(status: u16, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
     }
 }
 
@@ -18,289 +23,289 @@ impl From<worker::Error> for AppError {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct PublicUser {
-    id: i64,
-    username: String,
-    role: String,
-    nickname: String,
-    email: String,
-    avatar_url: String,
-    description: String,
+pub(crate) struct PublicUser {
+    pub(crate) id: i64,
+    pub(crate) username: String,
+    pub(crate) role: String,
+    pub(crate) nickname: String,
+    pub(crate) email: String,
+    pub(crate) avatar_url: String,
+    pub(crate) description: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbUser {
-    id: i64,
-    username: String,
-    role: String,
-    email: String,
-    nickname: String,
-    password_hash: String,
-    avatar_url: String,
-    description: String,
-    row_status: String,
+pub(crate) struct DbUser {
+    pub(crate) id: i64,
+    pub(crate) username: String,
+    pub(crate) role: String,
+    pub(crate) email: String,
+    pub(crate) nickname: String,
+    pub(crate) password_hash: String,
+    pub(crate) avatar_url: String,
+    pub(crate) description: String,
+    pub(crate) row_status: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct PublicMemo {
-    name: String,
-    id: i64,
-    uid: String,
-    creator: MemoCreator,
-    created_ts: i64,
-    updated_ts: i64,
-    row_status: String,
-    content: String,
-    visibility: String,
-    pinned: bool,
-    payload: Value,
-    attachments: Vec<Value>,
+pub(crate) struct PublicMemo {
+    pub(crate) name: String,
+    pub(crate) id: i64,
+    pub(crate) uid: String,
+    pub(crate) creator: MemoCreator,
+    pub(crate) created_ts: i64,
+    pub(crate) updated_ts: i64,
+    pub(crate) row_status: String,
+    pub(crate) content: String,
+    pub(crate) visibility: String,
+    pub(crate) pinned: bool,
+    pub(crate) payload: Value,
+    pub(crate) attachments: Vec<Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct MemoCreator {
-    id: i64,
-    username: String,
-    nickname: String,
+pub(crate) struct MemoCreator {
+    pub(crate) id: i64,
+    pub(crate) username: String,
+    pub(crate) nickname: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbMemo {
-    id: i64,
-    uid: String,
-    creator_id: i64,
-    creator_username: String,
-    creator_nickname: String,
-    created_ts: i64,
-    updated_ts: i64,
-    row_status: String,
-    content: String,
-    visibility: String,
-    pinned: i64,
-    payload: String,
+pub(crate) struct DbMemo {
+    pub(crate) id: i64,
+    pub(crate) uid: String,
+    pub(crate) creator_id: i64,
+    pub(crate) creator_username: String,
+    pub(crate) creator_nickname: String,
+    pub(crate) created_ts: i64,
+    pub(crate) updated_ts: i64,
+    pub(crate) row_status: String,
+    pub(crate) content: String,
+    pub(crate) visibility: String,
+    pub(crate) pinned: i64,
+    pub(crate) payload: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbMemoRelation {
-    uid: String,
-    content: String,
+pub(crate) struct DbMemoRelation {
+    pub(crate) uid: String,
+    pub(crate) content: String,
     #[serde(rename = "type")]
-    relation_type: String,
+    pub(crate) relation_type: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbMemoEvent {
-    id: i64,
-    event_type: String,
-    name: String,
-    visibility: String,
-    creator_id: i64,
-    payload: String,
+pub(crate) struct DbMemoEvent {
+    pub(crate) id: i64,
+    pub(crate) event_type: String,
+    pub(crate) name: String,
+    pub(crate) visibility: String,
+    pub(crate) creator_id: i64,
+    pub(crate) payload: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct RelationCandidate {
-    uid: String,
-    content: String,
-    payload: String,
-    updated_ts: i64,
+pub(crate) struct RelationCandidate {
+    pub(crate) uid: String,
+    pub(crate) content: String,
+    pub(crate) payload: String,
+    pub(crate) updated_ts: i64,
 }
 
 #[derive(Debug, Clone)]
-struct RankedRelationCandidate {
-    uid: String,
-    content: String,
-    score: f64,
-    tags: Vec<String>,
+pub(crate) struct RankedRelationCandidate {
+    pub(crate) uid: String,
+    pub(crate) content: String,
+    pub(crate) score: f64,
+    pub(crate) tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbReaction {
-    id: i64,
-    created_ts: i64,
-    reaction_type: String,
-    creator_id: i64,
-    creator_username: String,
+pub(crate) struct DbReaction {
+    pub(crate) id: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) reaction_type: String,
+    pub(crate) creator_id: i64,
+    pub(crate) creator_username: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbShare {
-    id: i64,
-    uid: String,
-    creator_id: i64,
-    created_ts: i64,
-    expires_ts: Option<i64>,
+pub(crate) struct DbShare {
+    pub(crate) id: i64,
+    pub(crate) uid: String,
+    pub(crate) creator_id: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) expires_ts: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbAttachment {
-    id: i64,
-    uid: String,
-    creator_id: i64,
-    created_ts: i64,
-    filename: String,
+pub(crate) struct DbAttachment {
+    pub(crate) id: i64,
+    pub(crate) uid: String,
+    pub(crate) creator_id: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) filename: String,
     #[serde(rename = "type")]
-    file_type: String,
-    size: i64,
-    memo_id: Option<i64>,
-    reference: String,
-    memo_visibility: Option<String>,
-    memo_creator_id: Option<i64>,
+    pub(crate) file_type: String,
+    pub(crate) size: i64,
+    pub(crate) memo_id: Option<i64>,
+    pub(crate) reference: String,
+    pub(crate) memo_visibility: Option<String>,
+    pub(crate) memo_creator_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbAccessToken {
-    id: i64,
-    name: String,
-    token_prefix: String,
-    created_ts: i64,
-    updated_ts: i64,
-    last_used_ts: Option<i64>,
-    expires_ts: Option<i64>,
-    row_status: String,
+pub(crate) struct DbAccessToken {
+    pub(crate) id: i64,
+    pub(crate) name: String,
+    pub(crate) token_prefix: String,
+    pub(crate) created_ts: i64,
+    pub(crate) updated_ts: i64,
+    pub(crate) last_used_ts: Option<i64>,
+    pub(crate) expires_ts: Option<i64>,
+    pub(crate) row_status: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct AiSettings {
-    base_url: String,
-    model: String,
-    api_key: String,
+pub(crate) struct AiSettings {
+    pub(crate) base_url: String,
+    pub(crate) model: String,
+    pub(crate) api_key: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbWebhook {
-    id: i64,
-    created_ts: i64,
-    updated_ts: i64,
-    row_status: String,
-    name: String,
-    url: String,
+pub(crate) struct DbWebhook {
+    pub(crate) id: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) updated_ts: i64,
+    pub(crate) row_status: String,
+    pub(crate) name: String,
+    pub(crate) url: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbWebhookDelivery {
-    id: i64,
-    webhook_id: i64,
-    created_ts: i64,
-    event: String,
-    status: String,
-    status_code: Option<i64>,
-    duration_ms: i64,
-    error: String,
-    request_body: String,
-    response_body: String,
-    webhook_name: Option<String>,
-    webhook_url: Option<String>,
+pub(crate) struct DbWebhookDelivery {
+    pub(crate) id: i64,
+    pub(crate) webhook_id: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) event: String,
+    pub(crate) status: String,
+    pub(crate) status_code: Option<i64>,
+    pub(crate) duration_ms: i64,
+    pub(crate) error: String,
+    pub(crate) request_body: String,
+    pub(crate) response_body: String,
+    pub(crate) webhook_name: Option<String>,
+    pub(crate) webhook_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbAuditLog {
-    id: i64,
-    created_ts: i64,
-    actor_id: Option<i64>,
-    actor_username: Option<String>,
-    action: String,
-    target: String,
-    detail: String,
+pub(crate) struct DbAuditLog {
+    pub(crate) id: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) actor_id: Option<i64>,
+    pub(crate) actor_username: Option<String>,
+    pub(crate) action: String,
+    pub(crate) target: String,
+    pub(crate) detail: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-struct DbInboxRow {
-    id: i64,
-    created_ts: i64,
-    sender_id: Option<i64>,
-    status: String,
-    message: String,
-    sender_username: Option<String>,
-    sender_nickname: Option<String>,
+pub(crate) struct DbInboxRow {
+    pub(crate) id: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) sender_id: Option<i64>,
+    pub(crate) status: String,
+    pub(crate) message: String,
+    pub(crate) sender_username: Option<String>,
+    pub(crate) sender_nickname: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct Claims {
-    iss: String,
-    sub: String,
-    exp: i64,
-    iat: i64,
+pub(crate) struct Claims {
+    pub(crate) iss: String,
+    pub(crate) sub: String,
+    pub(crate) exp: i64,
+    pub(crate) iat: i64,
     #[serde(rename = "type")]
-    token_type: String,
-    tid: Option<String>,
+    pub(crate) token_type: String,
+    pub(crate) tid: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct Viewer {
-    id: i64,
-    role: String,
+pub(crate) struct Viewer {
+    pub(crate) id: i64,
+    pub(crate) role: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MigrationRequest {
-    base_url: Option<String>,
-    access_token: Option<String>,
-    include_archived: Option<bool>,
+pub(crate) struct MigrationRequest {
+    pub(crate) base_url: Option<String>,
+    pub(crate) access_token: Option<String>,
+    pub(crate) include_archived: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
-struct MigrationOptions {
-    base_url: String,
-    access_token: String,
-    include_archived: bool,
+pub(crate) struct MigrationOptions {
+    pub(crate) base_url: String,
+    pub(crate) access_token: String,
+    pub(crate) include_archived: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct OriginalMemo {
-    name: Option<String>,
-    state: Option<String>,
-    creator: Option<String>,
-    create_time: Option<Value>,
-    update_time: Option<Value>,
-    content: Option<String>,
-    visibility: Option<String>,
-    tags: Option<Vec<String>>,
-    pinned: Option<bool>,
-    attachments: Option<Vec<Value>>,
-    relations: Option<Vec<Value>>,
-    property: Option<Value>,
-    parent: Option<String>,
-    location: Option<Value>,
+pub(crate) struct OriginalMemo {
+    pub(crate) name: Option<String>,
+    pub(crate) state: Option<String>,
+    pub(crate) creator: Option<String>,
+    pub(crate) create_time: Option<Value>,
+    pub(crate) update_time: Option<Value>,
+    pub(crate) content: Option<String>,
+    pub(crate) visibility: Option<String>,
+    pub(crate) tags: Option<Vec<String>>,
+    pub(crate) pinned: Option<bool>,
+    pub(crate) attachments: Option<Vec<Value>>,
+    pub(crate) relations: Option<Vec<Value>>,
+    pub(crate) property: Option<Value>,
+    pub(crate) parent: Option<String>,
+    pub(crate) location: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct MigrationSummary {
-    memo_count: usize,
-    attachment_count: usize,
-    relation_count: usize,
-    archived_count: usize,
-    truncated: bool,
+pub(crate) struct MigrationSummary {
+    pub(crate) memo_count: usize,
+    pub(crate) attachment_count: usize,
+    pub(crate) relation_count: usize,
+    pub(crate) archived_count: usize,
+    pub(crate) truncated: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct MigrationProgress {
-    phase: String,
-    processed: usize,
-    imported: usize,
-    skipped: usize,
-    memo_count: usize,
-    attachment_count: usize,
-    relation_count: usize,
-    archived_count: usize,
-    truncated: bool,
-    state: Option<String>,
+pub(crate) struct MigrationProgress {
+    pub(crate) phase: String,
+    pub(crate) processed: usize,
+    pub(crate) imported: usize,
+    pub(crate) skipped: usize,
+    pub(crate) memo_count: usize,
+    pub(crate) attachment_count: usize,
+    pub(crate) relation_count: usize,
+    pub(crate) archived_count: usize,
+    pub(crate) truncated: bool,
+    pub(crate) state: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
-struct BackupArtifact {
-    key: String,
-    size: usize,
+pub(crate) struct BackupArtifact {
+    pub(crate) key: String,
+    pub(crate) size: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum MemoChildRoute<'a> {
+pub(crate) enum MemoChildRoute<'a> {
     ListComments,
     CreateComment,
     ListReactions,
