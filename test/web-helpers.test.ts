@@ -14,7 +14,7 @@ import { buildAuthRedirectPath } from "../web/src/authFlow";
 import { formatInboxItem } from "../web/src/inboxView";
 import { buildShareUrl, normalizeWebhookForm } from "../web/src/integrationHelpers";
 import { buildBulkMemoRequest, bulkMemoActionLabel } from "../web/src/bulkActions";
-import { MEMO_WEBHOOK_EVENTS } from "../src/webhookEvents";
+import { MEMO_WEBHOOK_EVENTS } from "../web/src/webhookEvents";
 import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../web/src/webhookDeliveryView";
 import { highlightRenderedHtml } from "../web/src/searchHighlight";
 import { applyMemoTemplate, MEMO_TEMPLATES } from "../web/src/memoTemplates";
