@@ -59,6 +59,8 @@ mod audit_logs;
 pub(crate) use audit_logs::*;
 mod webhooks;
 pub(crate) use webhooks::*;
+mod webhook_deliveries;
+pub(crate) use webhook_deliveries::*;
 mod inbox;
 pub(crate) use inbox::*;
 mod attachments;

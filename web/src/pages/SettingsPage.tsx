@@ -5,6 +5,9 @@ import { useFeedback } from "../components/Feedback";
 import { normalizeWebhookForm } from "../integrationHelpers";
 import { attachmentCleanupSummary } from "../attachmentCleanupView";
 import type { CurrentUser } from "../App";
+import { AccountSettingsTab } from "./AccountSettingsTab";
+import { DataSettingsTab } from "./DataSettingsTab";
+import { IntegrationSettingsTab } from "./IntegrationSettingsTab";
 import {
   type AiSettings,
   type Attachment,
@@ -23,14 +26,7 @@ import {
   type WebhookDelivery,
 } from "./settingsModel";
 import { runMigrationStream } from "./settingsMigration";
-import {
-  AccountSettingsTab,
-  AuditSettingsTab,
-  DataSettingsTab,
-  IntegrationSettingsTab,
-  MaintenanceSettingsTab,
-  SettingsTabBar,
-} from "./settingsTabs";
+import { AuditSettingsTab, MaintenanceSettingsTab, SettingsTabBar } from "./settingsTabs";
 
 interface SettingsPageProps {
   path: string;
