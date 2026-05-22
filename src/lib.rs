@@ -313,6 +313,22 @@ struct BackupArtifact {
     size: usize,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum MemoChildRoute<'a> {
+    ListComments,
+    CreateComment,
+    ListReactions,
+    UpsertReaction,
+    DeleteReaction(&'a str),
+    GetRelations,
+    SuggestRelations,
+    SetRelations,
+    ListShares,
+    CreateShare,
+    DeleteShare(&'a str),
+    Unsupported,
+}
+
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
     match route(&mut req, &env).await {
@@ -791,19 +807,19 @@ async fn memo_subroute(req: &mut Request, env: &Env, viewer: &Viewer, raw: &str,
     let parts: Vec<&str> = raw.split('/').collect();
     let uid = parts[0];
     if parts.len() > 1 {
-        match (parts.get(1).copied(), method) {
-            (Some("comments"), Method::Get) => return list_comments(env, viewer, uid).await,
-            (Some("comments"), Method::Post) => return create_comment(req, env, viewer, uid).await,
-            (Some("reactions"), Method::Get) => return list_reactions(env, viewer, uid).await,
-            (Some("reactions"), Method::Post) => return upsert_reaction(req, env, viewer, uid).await,
-            (Some("reactions"), Method::Delete) if parts.len() > 2 => return delete_reaction(env, viewer, uid, parts[2]).await,
-            (Some("relations"), Method::Get) => return get_relations(env, viewer, uid).await,
-            (Some("relations"), Method::Post) if parts.get(2) == Some(&"suggest") => return suggest_memo_relations(env, viewer, uid).await,
-            (Some("relations"), Method::Patch) => return set_relations(req, env, viewer, uid).await,
-            (Some("shares"), Method::Get) => return list_shares(env, viewer, uid).await,
-            (Some("shares"), Method::Post) => return create_share(req, env, viewer, uid).await,
-            (Some("shares"), Method::Delete) if parts.len() > 2 => return delete_share(env, viewer, uid, parts[2]).await,
-            _ => return json_response(json!({ "ok": true }), 200).map_err(AppError::from),
+        match memo_child_route(&parts, &method) {
+            MemoChildRoute::ListComments => return list_comments(env, viewer, uid).await,
+            MemoChildRoute::CreateComment => return create_comment(req, env, viewer, uid).await,
+            MemoChildRoute::ListReactions => return list_reactions(env, viewer, uid).await,
+            MemoChildRoute::UpsertReaction => return upsert_reaction(req, env, viewer, uid).await,
+            MemoChildRoute::DeleteReaction(reaction_id) => return delete_reaction(env, viewer, uid, reaction_id).await,
+            MemoChildRoute::GetRelations => return get_relations(env, viewer, uid).await,
+            MemoChildRoute::SuggestRelations => return suggest_memo_relations(env, viewer, uid).await,
+            MemoChildRoute::SetRelations => return set_relations(req, env, viewer, uid).await,
+            MemoChildRoute::ListShares => return list_shares(env, viewer, uid).await,
+            MemoChildRoute::CreateShare => return create_share(req, env, viewer, uid).await,
+            MemoChildRoute::DeleteShare(share_id) => return delete_share(env, viewer, uid, share_id).await,
+            MemoChildRoute::Unsupported => return Err(AppError::new(404, "Memo subroute not found")),
         }
     }
     match method {
@@ -832,6 +848,23 @@ async fn memo_subroute(req: &mut Request, env: &Env, viewer: &Viewer, raw: &str,
             json_response(json!({ "ok": true }), 200).map_err(AppError::from)
         }
         _ => Err(AppError::new(405, "Method not allowed")),
+    }
+}
+
+fn memo_child_route<'a>(parts: &'a [&'a str], method: &Method) -> MemoChildRoute<'a> {
+    match (parts.get(1).copied(), method) {
+        (Some("comments"), Method::Get) => MemoChildRoute::ListComments,
+        (Some("comments"), Method::Post) => MemoChildRoute::CreateComment,
+        (Some("reactions"), Method::Get) => MemoChildRoute::ListReactions,
+        (Some("reactions"), Method::Post) => MemoChildRoute::UpsertReaction,
+        (Some("reactions"), Method::Delete) if parts.len() > 2 => MemoChildRoute::DeleteReaction(parts[2]),
+        (Some("relations"), Method::Get) if parts.len() == 2 => MemoChildRoute::GetRelations,
+        (Some("relations"), Method::Post) if parts.get(2) == Some(&"suggest") => MemoChildRoute::SuggestRelations,
+        (Some("relations"), Method::Patch) if parts.len() == 2 => MemoChildRoute::SetRelations,
+        (Some("shares"), Method::Get) => MemoChildRoute::ListShares,
+        (Some("shares"), Method::Post) => MemoChildRoute::CreateShare,
+        (Some("shares"), Method::Delete) if parts.len() > 2 => MemoChildRoute::DeleteShare(parts[2]),
+        _ => MemoChildRoute::Unsupported,
     }
 }
 
@@ -3401,6 +3434,22 @@ mod tests {
     fn safe_inbox_message_parse_falls_back_to_unknown() {
         assert_eq!(safe_inbox_message("{\"type\":\"memo.comment.created\",\"memoUid\":\"m_1\"}")["type"], "memo.comment.created");
         assert_eq!(safe_inbox_message("not json"), json!({ "type": "unknown" }));
+    }
+
+    #[test]
+    fn memo_child_routes_classify_unknown_paths_as_unsupported() {
+        assert_eq!(
+            memo_child_route(&["m_1", "relations", "suggest"], &Method::Post),
+            MemoChildRoute::SuggestRelations
+        );
+        assert_eq!(
+            memo_child_route(&["m_1", "relations", "suggest"], &Method::Get),
+            MemoChildRoute::Unsupported
+        );
+        assert_eq!(
+            memo_child_route(&["m_1", "unknown"], &Method::Get),
+            MemoChildRoute::Unsupported
+        );
     }
 
     #[test]
