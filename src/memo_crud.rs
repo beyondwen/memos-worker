@@ -57,10 +57,10 @@ pub(crate) async fn list_memos(
         .await?;
     let memos: Vec<DbMemo> = rows.results()?;
     let has_more = memos.len() as i64 > limit;
-    let mut public = Vec::new();
-    for memo in memos.into_iter().take(limit as usize) {
-        public.push(memo_with_attachments(env, memo).await?);
-    }
+    let page_memos: Vec<DbMemo> = memos.into_iter().take(limit as usize).collect();
+    let memo_ids: Vec<i64> = page_memos.iter().map(|memo| memo.id).collect();
+    let attachments = list_attachments_for_memos(env, &memo_ids).await?;
+    let public = public_memos_with_attachments(page_memos, attachments);
     let next_page_token = if has_more {
         (offset + limit).to_string()
     } else {

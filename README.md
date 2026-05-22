@@ -12,7 +12,6 @@ Cloudflare Pages + Rust Worker + D1 + R2 版的轻量 Memos 实现。
 - R2 附件上传、绑定 memo、鉴权下载
 - 管理员 JSON 导入/导出
 - 评论、引用关系
-- Webhook 投递记录和重试
 - Rust SSE 端点、D1 事件补偿、事件清理和迁移进度流
 - 内置最小 Web UI
 
@@ -20,9 +19,9 @@ Cloudflare Pages + Rust Worker + D1 + R2 版的轻量 Memos 实现。
 
 - 后端入口是 `src/lib.rs`，已经切到 Rust Worker；历史 TypeScript Worker 后端不再作为运行路径保留。
 - 前端入口在 `web/src`，构建产物由 Cloudflare Pages 托管。
-- D1 负责业务数据、SSE 补偿事件和 Webhook 投递记录；R2 负责附件对象。
+- D1 负责业务数据和 SSE 补偿事件；R2 负责附件对象。
 - `/api/v1/sse` 采用短连接事件流加 D1 补偿，客户端通过 `Last-Event-ID` 或 `since` 补拉事件。当前还没有 Durable Object 长连接广播。
-- Memo、评论、引用关系和批量操作会写入 `memo_event`；Memo 相关变更会按创建者触发启用状态的 Webhook。
+- Memo、评论、引用关系和批量操作会写入 `memo_event`。
 - 定时任务会先创建备份，再清理超过 7 天的 `memo_event`，避免补偿表无限增长。
 
 ## 本地运行
@@ -88,15 +87,6 @@ MEMOS_E2E_SIGNUP=1 \
 MEMOS_E2E_CLEANUP_USER=1 \
 MEMOS_E2E_ADMIN_USERNAME=admin \
 MEMOS_E2E_ADMIN_PASSWORD=admin-password \
-npm run test:e2e
-```
-
-如需把 Webhook 投递也纳入冒烟验证，额外设置一个可接收 POST 的地址：
-
-```bash
-MEMOS_E2E_USERNAME=admin \
-MEMOS_E2E_PASSWORD=your-password \
-MEMOS_E2E_WEBHOOK_URL=https://example.test/hook \
 npm run test:e2e
 ```
 

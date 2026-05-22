@@ -137,39 +137,6 @@ pub(crate) async fn authed_route(
             return delete_access_token(env, &viewer, identifier, token_id).await;
         }
     }
-    if path == "/api/v1/webhooks" && method == Method::Get {
-        return list_webhooks(env, &viewer).await;
-    }
-    if path == "/api/v1/webhooks" && method == Method::Post {
-        return create_webhook(req, env, &viewer).await;
-    }
-    if path == "/api/v1/webhooks/deliveries" && method == Method::Get {
-        return list_webhook_deliveries(env, url, &viewer).await;
-    }
-    if path.starts_with("/api/v1/webhooks/deliveries/")
-        && path.ends_with("/retry")
-        && method == Method::Post
-    {
-        let id = path
-            .trim_start_matches("/api/v1/webhooks/deliveries/")
-            .trim_end_matches("/retry")
-            .trim_matches('/');
-        return retry_webhook_delivery(env, &viewer, id).await;
-    }
-    if path.starts_with("/api/v1/webhooks/") && path.ends_with("/test") && method == Method::Post {
-        let id = path
-            .trim_start_matches("/api/v1/webhooks/")
-            .trim_end_matches("/test")
-            .trim_matches('/');
-        return test_webhook(env, &viewer, id).await;
-    }
-    if let Some(id) = path.strip_prefix("/api/v1/webhooks/") {
-        return match method {
-            Method::Patch => update_webhook(req, env, &viewer, id).await,
-            Method::Delete => delete_webhook(env, &viewer, id).await,
-            _ => Err(AppError::new(405, "Method not allowed")),
-        };
-    }
     if path == "/api/v1/sse" && method == Method::Get {
         return connect_sse(req, env, url, &viewer).await;
     }

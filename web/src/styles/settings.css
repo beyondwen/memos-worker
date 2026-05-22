@@ -80,24 +80,24 @@
   margin: 18px 0 10px;
   font-size: 0.875rem; font-weight: 700; color: var(--ink);
 }
-.webhook-delivery-panel {
+.audit-log-panel {
   margin-top: 18px;
 }
-.webhook-delivery-list {
+.audit-log-list {
   display: flex; flex-direction: column; gap: 8px;
 }
-.webhook-delivery-item {
+.audit-log-item {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
   padding: 10px 12px;
   background: rgba(248,250,247,0.82); border: 1px solid var(--line);
   border-radius: 14px;
 }
-.webhook-delivery-main,
-.webhook-delivery-meta {
+.audit-log-main,
+.audit-log-meta {
   min-width: 0;
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
 }
-.webhook-delivery-meta {
+.audit-log-meta {
   justify-content: flex-end;
   color: var(--muted); font-size: 0.75rem;
 }

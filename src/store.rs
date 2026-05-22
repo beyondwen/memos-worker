@@ -146,12 +146,54 @@ pub(crate) fn public_memo_with_attachments(memo: DbMemo, attachments: Vec<Value>
     }
 }
 
+pub(crate) fn public_memos_with_attachments(
+    memos: Vec<DbMemo>,
+    attachments: Vec<DbAttachment>,
+) -> Vec<PublicMemo> {
+    let mut grouped: HashMap<i64, Vec<Value>> = HashMap::new();
+    for attachment in attachments {
+        if let Some(memo_id) = attachment.memo_id {
+            grouped
+                .entry(memo_id)
+                .or_default()
+                .push(public_attachment(attachment));
+        }
+    }
+    memos
+        .into_iter()
+        .map(|memo| {
+            let attachments = grouped.remove(&memo.id).unwrap_or_default();
+            public_memo_with_attachments(memo, attachments)
+        })
+        .collect()
+}
+
 pub(crate) async fn memo_with_attachments(
     env: &Env,
     memo: DbMemo,
 ) -> std::result::Result<PublicMemo, AppError> {
     let attachments = list_attachments_for_memo(env, memo.id).await?;
     Ok(public_memo_with_attachments(memo, attachments))
+}
+
+pub(crate) async fn list_attachments_for_memos(
+    env: &Env,
+    memo_ids: &[i64],
+) -> std::result::Result<Vec<DbAttachment>, AppError> {
+    if memo_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let placeholders = placeholders(memo_ids.len());
+    let values: Vec<JsValue> = memo_ids.iter().map(|id| js_num(*id)).collect();
+    let rows = db(env)?
+        .prepare(format!(
+            "SELECT attachment.*, memo.visibility AS memo_visibility, memo.creator_id AS memo_creator_id FROM attachment LEFT JOIN memo ON memo.id = attachment.memo_id WHERE attachment.memo_id IN ({}) ORDER BY attachment.memo_id, attachment.created_ts, attachment.id",
+            placeholders
+        ))
+        .bind(&values)?
+        .all()
+        .await?;
+    Ok(rows.results()?)
 }
 
 pub(crate) async fn list_attachments_for_memo(

@@ -24,7 +24,6 @@ describe("e2e smoke script helpers", () => {
       adminUsername: "",
       adminPassword: "",
       timeoutMs: 15_000,
-      webhookUrl: "",
       proxyUrl: "",
     });
   });
@@ -36,13 +35,11 @@ describe("e2e smoke script helpers", () => {
       MEMOS_E2E_PASSWORD: "secret",
       MEMOS_E2E_KEEP_DATA: "1",
       MEMOS_E2E_TIMEOUT_MS: "5000",
-      MEMOS_E2E_WEBHOOK_URL: "https://example.test/hook",
       MEMOS_E2E_PROXY_URL: "http://127.0.0.1:7890",
     })).toMatchObject({
       baseUrl: "https://example.test",
       keepData: true,
       timeoutMs: 5000,
-      webhookUrl: "https://example.test/hook",
       proxyUrl: "http://127.0.0.1:7890",
     });
   });

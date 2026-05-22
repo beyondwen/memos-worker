@@ -172,8 +172,6 @@ pub(crate) fn audit_action_label(action: &str) -> &str {
         "migration.usememos.start" => "开始迁移原版 Memos",
         "migration.usememos.import" => "迁移原版 Memos",
         "migration.usememos.error" => "迁移原版 Memos 失败",
-        "webhook.create" => "创建 Webhook",
-        "webhook.delete" => "删除 Webhook",
         "tag.rename" => "重命名标签",
         _ => action,
     }

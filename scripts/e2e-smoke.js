@@ -8,7 +8,6 @@ export function loadConfig(env = process.env) {
   const baseUrl = (env.MEMOS_E2E_BASE_URL || "http://127.0.0.1:8787").replace(/\/$/, "");
   const username = env.MEMOS_E2E_USERNAME || "";
   const password = env.MEMOS_E2E_PASSWORD || "";
-  const webhookUrl = (env.MEMOS_E2E_WEBHOOK_URL || "").trim();
   const keepData = env.MEMOS_E2E_KEEP_DATA === "1" || env.MEMOS_E2E_KEEP_DATA === "true";
   const signup = env.MEMOS_E2E_SIGNUP === "1" || env.MEMOS_E2E_SIGNUP === "true";
   const cleanupUser = env.MEMOS_E2E_CLEANUP_USER === "1" || env.MEMOS_E2E_CLEANUP_USER === "true";
@@ -19,7 +18,6 @@ export function loadConfig(env = process.env) {
     baseUrl,
     username,
     password,
-    webhookUrl,
     keepData,
     signup,
     cleanupUser,
@@ -91,16 +89,12 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
 
   const client = new SmokeClient(config, fetchImpl);
   const created = [];
-  let webhookId = null;
   let primaryMemo;
   try {
     if (config.signup) {
       await client.signUp();
     }
     await client.signIn();
-    if (config.webhookUrl) {
-      webhookId = await client.createWebhook(config.webhookUrl);
-    }
 
     primaryMemo = await client.createMemo(`e2e primary ${Date.now()}`);
     created.push(primaryMemo.uid);
@@ -130,28 +124,13 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
     assertEvent(sseEvents, "memo.comment.created", primaryMemo.uid);
     assertEvent(sseEvents, "memo.bulk.updated", primaryMemo.uid);
 
-    let webhookDeliveries = [];
-    if (webhookId) {
-      webhookDeliveries = await client.listWebhookDeliveries(webhookId);
-      assert(
-        webhookDeliveries.some((delivery) => delivery.event === "memo.created"),
-        "webhook delivery for memo.created was not found",
-      );
-    }
-
     return {
       ok: true,
       memoUids: created,
       sseEvents: sseEvents.map((event) => event.event).filter(Boolean),
-      webhookDeliveryCount: webhookDeliveries.length,
     };
   } finally {
     if (!config.keepData && client.token) {
-      if (webhookId) {
-        await client.deleteWebhook(webhookId).catch((error) => {
-          console.warn(`cleanup webhook failed for ${webhookId}: ${error.message}`);
-        });
-      }
       for (const uid of created.reverse()) {
         await client.purgeMemo(uid).catch((error) => {
           console.warn(`cleanup failed for ${uid}: ${error.message}`);
@@ -272,25 +251,6 @@ class SmokeClient {
       headers: { Authorization: `Bearer ${this.token}` },
     }, "text");
     return parseSseEvents(body);
-  }
-
-  async createWebhook(url) {
-    const body = await this.authed("/api/v1/webhooks", {
-      method: "POST",
-      body: { name: `e2e-${Date.now()}`, url },
-    });
-    assert(body.webhook?.id, "create webhook did not return id");
-    return body.webhook.id;
-  }
-
-  async deleteWebhook(id) {
-    return this.authed(`/api/v1/webhooks/${id}`, { method: "DELETE" });
-  }
-
-  async listWebhookDeliveries(webhookId) {
-    const body = await this.authed(`/api/v1/webhooks/deliveries?webhookId=${webhookId}`);
-    assert(Array.isArray(body.deliveries), "webhook deliveries response did not return deliveries");
-    return body.deliveries;
   }
 
   async purgeMemo(uid) {

@@ -48,6 +48,45 @@ fn public_memo_with_attachments_preserves_attachment_payload() {
 }
 
 #[test]
+fn public_memos_with_attachments_preserves_order_and_groups_by_memo() {
+    let first = DbMemo {
+        id: 1,
+        uid: "m_1".to_string(),
+        ..sample_memo()
+    };
+    let second = DbMemo {
+        id: 2,
+        uid: "m_2".to_string(),
+        ..sample_memo()
+    };
+    let attachments = vec![
+        sample_attachment(2, "a_2", "second.txt"),
+        sample_attachment(1, "a_1", "first.txt"),
+    ];
+
+    let public = public_memos_with_attachments(vec![first, second], attachments);
+
+    assert_eq!(
+        public
+            .iter()
+            .map(|memo| memo.uid.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m_1", "m_2"]
+    );
+    assert_eq!(public[0].attachments[0]["uid"], "a_1");
+    assert_eq!(public[1].attachments[0]["uid"], "a_2");
+}
+
+#[test]
+fn memo_list_index_migration_matches_home_query_order() {
+    let migration = std::fs::read_to_string("migrations/0005_memo_list_indexes.sql")
+        .expect("memo list index migration");
+
+    assert!(migration.contains("idx_memo_list_home"));
+    assert!(migration.contains("memo(row_status, pinned, created_ts, id)"));
+}
+
+#[test]
 fn sse_ready_payload_is_valid_event_stream() {
     let payload = sse_ready_payload(7).expect("ready payload");
 
@@ -115,41 +154,6 @@ fn memo_event_payload_merges_detail_fields() {
             "action": "ARCHIVE",
             "updated": 2,
             "deleted": 0
-        })
-    );
-}
-
-#[test]
-fn memo_webhook_body_wraps_event_timestamp_and_public_memo() {
-    let memo = sample_memo();
-
-    assert_eq!(
-        memo_webhook_body(
-            "memo.updated",
-            &memo,
-            1779345600,
-            json!({ "source": "test" })
-        ),
-        json!({
-            "event": "memo.updated",
-            "timestamp": 1779345600,
-            "payload": {
-                "memo": {
-                    "name": "memos/m_1",
-                    "id": 1,
-                    "uid": "m_1",
-                    "creator": { "id": 7, "username": "alice", "nickname": "Alice" },
-                    "createdTs": 10,
-                    "updatedTs": 11,
-                    "rowStatus": "NORMAL",
-                    "content": "hello",
-                    "visibility": "PRIVATE",
-                    "pinned": false,
-                    "payload": {},
-                    "attachments": []
-                },
-                "detail": { "source": "test" }
-            }
         })
     );
 }
@@ -320,5 +324,21 @@ fn sample_memo() -> DbMemo {
         visibility: "PRIVATE".to_string(),
         pinned: 0,
         payload: "{}".to_string(),
+    }
+}
+
+fn sample_attachment(memo_id: i64, uid: &str, filename: &str) -> DbAttachment {
+    DbAttachment {
+        id: memo_id,
+        uid: uid.to_string(),
+        creator_id: 7,
+        created_ts: 10 + memo_id,
+        filename: filename.to_string(),
+        file_type: "text/plain".to_string(),
+        size: 12,
+        memo_id: Some(memo_id),
+        reference: format!("attachments/7/{}/{}", uid, filename),
+        memo_visibility: Some("PRIVATE".to_string()),
+        memo_creator_id: Some(7),
     }
 }

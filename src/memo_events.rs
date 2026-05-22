@@ -8,9 +8,6 @@ pub(crate) async fn emit_memo_change(env: &Env, event_type: &str, memo: &DbMemo,
     if let Err(error) = record_memo_event_with_detail(env, event_type, memo, detail.clone()).await {
         console_log!("memo event record failed: {}", error.message);
     }
-    if let Err(error) = fire_memo_webhooks(env, event_type, memo, detail).await {
-        console_log!("memo webhook dispatch failed: {}", error.message);
-    }
 }
 
 pub(crate) async fn record_memo_event_with_detail(
@@ -92,55 +89,6 @@ pub(crate) fn memo_event_payload_with_detail(
         }
     }
     payload
-}
-
-pub(crate) fn memo_webhook_body(
-    event_type: &str,
-    memo: &DbMemo,
-    timestamp: i64,
-    detail: Value,
-) -> Value {
-    json!({
-        "event": event_type,
-        "timestamp": timestamp,
-        "payload": {
-            "memo": public_memo(memo.clone()),
-            "detail": detail
-        }
-    })
-}
-
-pub(crate) async fn fire_memo_webhooks(
-    env: &Env,
-    event_type: &str,
-    memo: &DbMemo,
-    detail: Value,
-) -> std::result::Result<(), AppError> {
-    let rows = db(env)?
-        .prepare("SELECT * FROM webhook WHERE creator_id = ? AND row_status = 'NORMAL' ORDER BY id")
-        .bind(&[js_num(memo.creator_id)])?
-        .all()
-        .await?;
-    let webhooks: Vec<DbWebhook> = rows.results()?;
-    if webhooks.is_empty() {
-        return Ok(());
-    }
-    let body = memo_webhook_body(event_type, memo, unix_now(), detail).to_string();
-    for webhook in webhooks {
-        if let Err(error) = send_and_record_webhook(
-            env,
-            webhook.id,
-            memo.creator_id,
-            &webhook.url,
-            event_type,
-            &body,
-        )
-        .await
-        {
-            console_log!("webhook delivery failed: {}", error.message);
-        }
-    }
-    Ok(())
 }
 
 pub(crate) async fn prune_memo_events(

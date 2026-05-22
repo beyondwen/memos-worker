@@ -93,10 +93,10 @@ export function AuditSettingsTab({ auditLogs }: { auditLogs: AuditLog[] }) {
   return (
     <div class="settings-section">
       <h2>操作审计</h2>
-      <div class="webhook-delivery-list">
+      <div class="audit-log-list">
         {auditLogs.map((log) => (
-          <div key={log.id} class="webhook-delivery-item">
-            <div class="webhook-delivery-main">
+          <div key={log.id} class="audit-log-item">
+            <div class="audit-log-main">
               <span class="delivery-event">{log.actionLabel}</span>
               <span class="delivery-name">{log.actorUsername ?? "system"}</span>
               <span class="delivery-time">{new Date(log.createdTs * 1000).toLocaleString("zh-CN")}</span>
