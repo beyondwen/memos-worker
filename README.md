@@ -22,6 +22,13 @@ npm run db:migrate:local
 npm run dev
 ```
 
+后端运行在 Rust Worker 上，本地构建需要先安装 Rust 工具链：
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install worker-build
+```
+
 本地开发需要 `.dev.vars`：
 
 ```bash
@@ -39,6 +46,7 @@ npm run build
 ```
 
 `npm run build` 使用 `wrangler deploy --dry-run --outdir dist`，只验证打包，不会部署。
+当前 Rust Worker 构建关闭了 `wasm-opt`，避免本地或 CI 在无法访问 GitHub binaryen release 时失败。
 
 ## 生产部署
 

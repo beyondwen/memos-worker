@@ -280,6 +280,12 @@ struct MigrationProgress {
     state: Option<String>,
 }
 
+#[derive(Debug, PartialEq)]
+struct BackupArtifact {
+    key: String,
+    size: usize,
+}
+
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
     match route(&mut req, &env).await {
@@ -289,8 +295,11 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
 }
 
 #[event(scheduled)]
-async fn scheduled(_event: ScheduledEvent, _env: Env, _ctx: ScheduleContext) {
-    console_log!("scheduled backup is not implemented in Rust worker yet");
+async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    match create_scheduled_backup(&env).await {
+        Ok(artifact) => console_log!("scheduled backup created: {}", artifact.key),
+        Err(error) => console_log!("scheduled backup failed: {}", error.message),
+    }
 }
 
 async fn route(req: &mut Request, env: &Env) -> std::result::Result<Response, AppError> {
@@ -406,7 +415,7 @@ async fn authed_route(
         return list_attachments(env, url, &viewer).await;
     }
     if path == "/api/v1/attachments" && method == Method::Post {
-        return Err(AppError::new(501, "Attachment upload is not implemented in Rust worker yet"));
+        return upload_attachment(req, env, &viewer).await;
     }
     if path == "/api/v1/attachments/batch-delete" && method == Method::Post {
         return batch_delete_attachments(req, env, &viewer).await;
@@ -1599,6 +1608,18 @@ fn public_ai_settings(settings: &AiSettings) -> Value {
 
 async fn create_backup(env: &Env, viewer: &Viewer) -> std::result::Result<Response, AppError> {
     require_admin(viewer)?;
+    let artifact = create_backup_artifact(env).await?;
+    record_audit(env, Some(viewer), "backup.create", &artifact.key, json!({ "size": artifact.size })).await;
+    json_response(backup_artifact_payload(&artifact), 201).map_err(AppError::from)
+}
+
+async fn create_scheduled_backup(env: &Env) -> std::result::Result<BackupArtifact, AppError> {
+    let artifact = create_backup_artifact(env).await?;
+    record_audit(env, None, "backup.create", &artifact.key, json!({ "size": artifact.size, "source": "scheduled" })).await;
+    Ok(artifact)
+}
+
+async fn create_backup_artifact(env: &Env) -> std::result::Result<BackupArtifact, AppError> {
     let key = backup_key();
     let body = serde_json::to_string_pretty(&build_backup_payload(env).await?).map_err(|error| AppError::new(500, error.to_string()))?;
     let size = body.as_bytes().len();
@@ -1610,8 +1631,11 @@ async fn create_backup(env: &Env, viewer: &Viewer) -> std::result::Result<Respon
         })
         .execute()
         .await?;
-    record_audit(env, Some(viewer), "backup.create", &key, json!({ "size": size })).await;
-    json_response(json!({ "backup": { "key": key, "size": size } }), 201).map_err(AppError::from)
+    Ok(BackupArtifact { key, size })
+}
+
+fn backup_artifact_payload(artifact: &BackupArtifact) -> Value {
+    json!({ "backup": { "key": artifact.key, "size": artifact.size } })
 }
 
 async fn list_backups(env: &Env, viewer: &Viewer) -> std::result::Result<Response, AppError> {
@@ -1997,6 +2021,69 @@ async fn list_attachments(env: &Env, url: &Url, viewer: &Viewer) -> std::result:
     json_response(json!({ "attachments": payload }), 200).map_err(AppError::from)
 }
 
+async fn upload_attachment(req: &mut Request, env: &Env, viewer: &Viewer) -> std::result::Result<Response, AppError> {
+    let form = req.form_data().await.map_err(|_| AppError::new(400, "Invalid form data"))?;
+    let file = match form.get("file") {
+        Some(FormEntry::File(file)) => file,
+        _ => return Err(AppError::new(400, "file is required")),
+    };
+    if file.size() > 25 * 1024 * 1024 {
+        return Err(AppError::new(413, "file is too large"));
+    }
+
+    let memo_uid = form.get_field("memoUid").unwrap_or_default();
+    let memo_id = if memo_uid.trim().is_empty() {
+        None
+    } else {
+        let memo = get_memo_by_uid(env, memo_uid.trim()).await?.ok_or_else(|| AppError::new(404, "Memo not found"))?;
+        if !can_write(&memo, viewer) {
+            return Err(AppError::new(403, "Forbidden"));
+        }
+        Some(memo.id)
+    };
+
+    let original_filename = file.name();
+    let filename = sanitize_filename(if original_filename.is_empty() { "attachment" } else { &original_filename });
+    let file_type = if file.type_().is_empty() { "application/octet-stream".to_string() } else { file.type_() };
+    let uid = generate_uid("a");
+    let key = attachment_storage_key(viewer.id, &uid, &filename);
+    let bytes = file.bytes().await?;
+    let size = bytes.len() as i64;
+    let mut metadata = HashMap::new();
+    metadata.insert("creatorId".to_string(), viewer.id.to_string());
+    metadata.insert("originalFilename".to_string(), if original_filename.is_empty() { filename.clone() } else { original_filename });
+
+    env.bucket("MEMOS_BUCKET")?
+        .put(key.clone(), bytes)
+        .http_metadata(HttpMetadata {
+            content_type: Some(file_type.clone()),
+            content_disposition: Some(format!("inline; filename=\"{}\"", filename)),
+            ..Default::default()
+        })
+        .custom_metadata(metadata)
+        .execute()
+        .await?;
+
+    let now = unix_now();
+    db(env)?.prepare("INSERT INTO attachment (uid, creator_id, created_ts, updated_ts, filename, type, size, memo_id, storage_type, reference, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'S3', ?, '{}')")
+        .bind(&[
+            uid.clone().into(),
+            js_num(viewer.id),
+            js_num(now),
+            js_num(now),
+            filename.into(),
+            file_type.into(),
+            js_num(size),
+            memo_id.map(js_num).unwrap_or(JsValue::NULL),
+            key.into(),
+        ])?
+        .run()
+        .await?;
+
+    let attachment = get_attachment_by_uid(env, &uid).await?.ok_or_else(|| AppError::new(500, "Failed to create attachment"))?;
+    json_response(json!({ "attachment": public_attachment(attachment) }), 201).map_err(AppError::from)
+}
+
 async fn download_attachment(env: &Env, viewer: &Viewer, uid: &str) -> std::result::Result<Response, AppError> {
     let attachment = get_attachment_by_uid(env, uid).await?.ok_or_else(|| AppError::new(404, "Attachment not found"))?;
     if !can_read_attachment(&attachment, viewer) {
@@ -2085,6 +2172,26 @@ fn public_attachment(attachment: DbAttachment) -> Value {
         "createdTs": attachment.created_ts,
         "url": format!("/file/attachments/{}/{}", attachment.uid, attachment.filename)
     })
+}
+
+fn attachment_storage_key(creator_id: i64, uid: &str, filename: &str) -> String {
+    format!("attachments/{}/{}/{}", creator_id, uid, filename)
+}
+
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|ch| if matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || ch.is_control() { '_' } else { ch })
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(180)
+        .collect();
+    if cleaned.is_empty() || !cleaned.chars().any(char::is_alphanumeric) {
+        "attachment".to_string()
+    } else {
+        cleaned
+    }
 }
 
 fn can_read_attachment(attachment: &DbAttachment, viewer: &Viewer) -> bool {
@@ -2779,6 +2886,35 @@ fn audit_action_label(action: &str) -> &str {
         "webhook.delete" => "删除 Webhook",
         "tag.rename" => "重命名标签",
         _ => action,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backup_artifact_api_payload_includes_key_and_size() {
+        let artifact = BackupArtifact { key: "backups/memos-test.json".to_string(), size: 42 };
+
+        assert_eq!(
+            backup_artifact_payload(&artifact),
+            json!({ "backup": { "key": "backups/memos-test.json", "size": 42 } })
+        );
+    }
+
+    #[test]
+    fn sanitize_filename_replaces_unsafe_names() {
+        assert_eq!(sanitize_filename("../bad:name?.png"), ".._bad_name_.png");
+        assert_eq!(sanitize_filename("\u{0000}"), "attachment");
+    }
+
+    #[test]
+    fn attachment_storage_key_uses_creator_uid_and_filename() {
+        assert_eq!(
+            attachment_storage_key(7, "a_123", "note.txt"),
+            "attachments/7/a_123/note.txt"
+        );
     }
 }
 

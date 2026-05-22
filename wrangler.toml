@@ -3,7 +3,7 @@ main = "build/worker/shim.mjs"
 compatibility_date = "2026-05-20"
 
 [build]
-command = "PATH=/home/wenha/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH /home/wenha/.cargo/bin/worker-build --release"
+command = "sh scripts/build-worker.sh"
 
 [assets]
 directory = "./dist/static"
