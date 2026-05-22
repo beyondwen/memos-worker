@@ -13,9 +13,9 @@
   --zinc-900: #18181b;
   --zinc-950: #09090b;
   --ink: #242421;
-  --muted: #6f6a61;
-  --text-muted: #6f6a61;
-  --text-secondary: #8e887d;
+  --muted: #57534b;
+  --text-muted: #57534b;
+  --text-secondary: #6f6a61;
   --primary: #315c45;
   --primary-soft: #dceae0;
   --rose-soft: #f6dddd;
@@ -40,7 +40,7 @@
   --shadow-lift: 0 24px 70px rgba(36,36,33,0.13), 0 2px 8px rgba(36,36,33,0.06);
   --header-h: 56px;
   --max-w: 720px;
-  --font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 }
@@ -56,8 +56,7 @@ body {
     linear-gradient(180deg, #f7f9f5 0%, #eef3ed 54%, #f4f1ea 100%);
   line-height: 1.6;
   min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 a { color: inherit; }
@@ -640,7 +639,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 /* ── Memo Content ────────────────────────── */
 .memo-content {
   font-size: 0.9375rem; line-height: 1.75;
-  word-break: break-word; color: #383833;
+  word-break: break-word; color: var(--ink);
 }
 .memo-content h1,.memo-content h2,.memo-content h3 {
   margin-top: 1.2em; margin-bottom: 0.4em;
