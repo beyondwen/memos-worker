@@ -504,7 +504,7 @@ async fn authed_route(
         };
     }
     if path == "/api/v1/sse" && method == Method::Get {
-        return json_response(json!({ "ok": true }), 200).map_err(AppError::from);
+        return connect_sse(&viewer);
     }
 
     if let Some(uid) = path.strip_prefix("/api/v1/memos/") {
@@ -1440,6 +1440,19 @@ fn sse_event<T: Serialize>(event: &str, data: &T) -> std::result::Result<String,
 fn send_sse_chunk<T: Serialize>(sender: &mut mpsc::UnboundedSender<Vec<u8>>, event: &str, data: &T) -> std::result::Result<(), AppError> {
     let chunk = sse_event(event, data)?;
     sender.unbounded_send(chunk.into_bytes()).map_err(|_| AppError::new(500, "Migration progress stream closed"))
+}
+
+fn connect_sse(viewer: &Viewer) -> std::result::Result<Response, AppError> {
+    let body = sse_ready_payload(viewer.id)?;
+    let mut response = Response::ok(body)?;
+    response.headers_mut().set("Content-Type", "text/event-stream; charset=utf-8")?;
+    response.headers_mut().set("Cache-Control", "no-store")?;
+    response.headers_mut().set("X-Accel-Buffering", "no")?;
+    Ok(response)
+}
+
+fn sse_ready_payload(user_id: i64) -> std::result::Result<String, AppError> {
+    Ok(format!("retry: 30000\n{}", sse_event("ready", &json!({ "userId": user_id }))?))
 }
 
 async fn record_migration_audit(env: &Env, viewer: &Viewer, options: &MigrationOptions, progress: &MigrationProgress) {
@@ -2992,6 +3005,15 @@ mod tests {
             shared_attachment_url("s_1", "a_1", "note.txt"),
             "/api/v1/shares/s_1/attachments/a_1/note.txt"
         );
+    }
+
+    #[test]
+    fn sse_ready_payload_is_valid_event_stream() {
+        let payload = sse_ready_payload(7).expect("ready payload");
+
+        assert!(payload.starts_with("retry: 30000\n"));
+        assert!(payload.contains("event: ready\n"));
+        assert!(payload.contains("\"userId\":7"));
     }
 
     fn sample_memo() -> DbMemo {
