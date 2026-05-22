@@ -1,6 +1,12 @@
 name = "memos-worker"
 main = "build/worker/shim.mjs"
 compatibility_date = "2026-05-20"
+workers_dev = true
+
+routes = [
+  { pattern = "notes.freedomjw.dpdns.org/api/*", zone_name = "freedomjw.dpdns.org" },
+  { pattern = "notes.freedomjw.dpdns.org/file/*", zone_name = "freedomjw.dpdns.org" }
+]
 
 [build]
 command = "sh scripts/build-worker.sh"
