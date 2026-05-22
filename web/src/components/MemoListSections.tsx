@@ -2,6 +2,7 @@ import type { CurrentUser } from "../App";
 import type { BulkMemoAction } from "../bulkActions";
 import type { MemoState, MemoVisibility } from "../memoQuery";
 import { buildSearchSnippet } from "../searchResultView";
+import { CustomSelect } from "./CustomSelect";
 import { MemoCard, type Memo } from "./MemoCard";
 
 interface BulkBarProps {
@@ -16,6 +17,12 @@ interface BulkBarProps {
   onBulkVisibilityChange: (visibility: MemoVisibility) => void;
   onClearSelection: () => void;
 }
+
+const VISIBILITY_OPTIONS: Array<{ value: MemoVisibility; label: string }> = [
+  { value: "PRIVATE", label: "私有" },
+  { value: "PROTECTED", label: "登录可见" },
+  { value: "PUBLIC", label: "公开" },
+];
 
 export function BulkBar({
   selectableCount,
@@ -59,16 +66,14 @@ export function BulkBar({
               </button>
             </>
           )}
-          <select
-            class="filter-select compact"
+          <CustomSelect
             value={bulkVisibility}
-            onChange={(e) => onBulkVisibilityChange((e.target as HTMLSelectElement).value as MemoVisibility)}
+            options={VISIBILITY_OPTIONS}
+            onChange={onBulkVisibilityChange}
+            ariaLabel="批量可见性"
             disabled={bulkWorking}
-          >
-            <option value="PRIVATE">私有</option>
-            <option value="PROTECTED">登录可见</option>
-            <option value="PUBLIC">公开</option>
-          </select>
+            compact
+          />
           <button class="btn btn-secondary btn-sm" onClick={() => onRunBulkAction("VISIBILITY")} disabled={bulkWorking}>
             改可见性
           </button>

@@ -411,6 +411,18 @@ fn memo_tags_from_payload_normalizes_unique_tags() {
 }
 
 #[test]
+fn hash_tags_can_be_maintained_inline() {
+    assert_eq!(
+        extract_hash_tags("今天#学习 继续 #work-log，#日记/早课 #"),
+        vec![
+            "work-log".to_string(),
+            "学习".to_string(),
+            "日记/早课".to_string()
+        ]
+    );
+}
+
+#[test]
 fn calendar_month_bounds_use_utc_month_edges() {
     assert_eq!(
         calendar_month_bounds(2026, 5).expect("month bounds"),

@@ -16,6 +16,17 @@ interface MemoListResponse {
   nextPageToken: string;
 }
 
+interface MemoListMembership {
+  state: MemoState;
+  visibility?: MemoVisibility;
+  tag?: string;
+  search?: string;
+  propertyFilter?: MemoPropertyFilter;
+  advancedFilter?: string;
+  createdAfter?: string;
+  createdBefore?: string;
+}
+
 interface MemoListProps {
   endpoint?: string;
   currentUser: CurrentUser | null;
@@ -27,8 +38,54 @@ interface MemoListProps {
   advancedFilter?: string;
   createdAfter?: string;
   createdBefore?: string;
-  refreshKey?: number;
+  createdMemo?: Memo | null;
+  onMemoChanged?: (memo: Memo) => void;
   emptyText?: string;
+}
+
+function memoBelongsInList(memo: Memo, filters: MemoListMembership): boolean {
+  if (memo.rowStatus !== filters.state) return false;
+  if (filters.visibility && memo.visibility !== filters.visibility) return false;
+  if (filters.tag && !(memo.payload?.tags ?? []).includes(filters.tag)) return false;
+  if (filters.search && !memoMatchesSearch(memo, filters.search)) return false;
+  if (filters.propertyFilter && !memoMatchesProperty(memo, filters.propertyFilter)) return false;
+  if (filters.advancedFilter) return false;
+  const createdDay = memoDateKey(memo.createdTs);
+  if (filters.createdAfter && createdDay < filters.createdAfter) return false;
+  if (filters.createdBefore && createdDay > filters.createdBefore) return false;
+  return true;
+}
+
+function memoMatchesSearch(memo: Memo, search: string): boolean {
+  const needle = search.trim().toLowerCase();
+  if (!needle) return true;
+  return memo.content.toLowerCase().includes(needle)
+    || (memo.payload?.tags ?? []).some((tag) => tag.toLowerCase().includes(needle));
+}
+
+function memoMatchesProperty(memo: Memo, propertyFilter: MemoPropertyFilter): boolean {
+  const property = (memo.payload as { property?: Record<string, boolean> })?.property ?? {};
+  const keyMap: Record<MemoPropertyFilter, string> = {
+    has_task_list: "hasTaskList",
+    has_incomplete_tasks: "hasIncompleteTasks",
+    has_link: "hasLink",
+    has_code: "hasCode",
+  };
+  return !!property[keyMap[propertyFilter]];
+}
+
+function memoDateKey(ts: number): string {
+  const date = new Date(ts * 1000);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function compareMemoOrder(a: Memo, b: Memo): number {
+  if (Number(a.pinned) !== Number(b.pinned)) return Number(b.pinned) - Number(a.pinned);
+  if (a.createdTs !== b.createdTs) return b.createdTs - a.createdTs;
+  return b.id - a.id;
 }
 
 export function MemoList({
@@ -42,7 +99,8 @@ export function MemoList({
   advancedFilter,
   createdAfter,
   createdBefore,
-  refreshKey,
+  createdMemo,
+  onMemoChanged,
   emptyText = "暂无备忘录",
 }: MemoListProps) {
   const [memos, setMemos] = useState<Memo[]>([]);
@@ -54,6 +112,7 @@ export function MemoList({
   const [bulkWorking, setBulkWorking] = useState(false);
   const longPressTimer = useRef<number | null>(null);
   const sseRefreshTimer = useRef<number | null>(null);
+  const locallyUpdatedNames = useRef<Set<string>>(new Set());
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const { notify, confirm } = useFeedback();
 
@@ -100,7 +159,17 @@ export function MemoList({
 
   useEffect(() => {
     fetchMemos();
-  }, [fetchMemos, refreshKey]);
+  }, [fetchMemos]);
+
+  useEffect(() => {
+    if (!createdMemo) return;
+    locallyUpdatedNames.current.add(createdMemo.name);
+    if (!memoBelongsInList(createdMemo, { state, visibility, tag, search, propertyFilter, advancedFilter, createdAfter, createdBefore })) return;
+    setMemos((prev) => {
+      const withoutDuplicate = prev.filter((memo) => memo.uid !== createdMemo.uid);
+      return [createdMemo, ...withoutDuplicate].sort(compareMemoOrder);
+    });
+  }, [advancedFilter, createdAfter, createdBefore, createdMemo, propertyFilter, search, state, tag, visibility]);
 
   const loadNextPage = useCallback(() => {
     if (!shouldAutoLoadNextMemoPage({ hasMore, loading, nextPageToken })) return;
@@ -135,6 +204,7 @@ export function MemoList({
       try {
         const event = JSON.parse(message.data);
         if (shouldRefreshForSseEvent(event)) {
+          if (event.name && locallyUpdatedNames.current.delete(event.name)) return;
           sseRefreshTimer.current = scheduleDebouncedRefresh(
             sseRefreshTimer.current,
             window.setTimeout,
@@ -162,12 +232,14 @@ export function MemoList({
   }, [currentUser, fetchMemos]);
 
   const handleMemoUpdate = useCallback((updated: Memo) => {
-    if (updated.rowStatus !== state) {
+    locallyUpdatedNames.current.add(updated.name);
+    onMemoChanged?.(updated);
+    if (!memoBelongsInList(updated, { state, visibility, tag, search, propertyFilter, advancedFilter, createdAfter, createdBefore })) {
       setMemos((prev) => prev.filter((m) => m.uid !== updated.uid));
     } else {
-      setMemos((prev) => prev.map((m) => (m.uid === updated.uid ? updated : m)));
+      setMemos((prev) => prev.map((m) => (m.uid === updated.uid ? updated : m)).sort(compareMemoOrder));
     }
-  }, [state]);
+  }, [advancedFilter, createdAfter, createdBefore, onMemoChanged, propertyFilter, search, state, tag, visibility]);
 
   const handleMemoRemove = useCallback((uid: string) => {
     setMemos((prev) => prev.filter((memo) => memo.uid !== uid));

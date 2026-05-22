@@ -1,17 +1,7 @@
 use super::*;
 
 pub(crate) fn build_memo_payload(content: &str) -> Value {
-    let tags: Vec<String> = content
-        .split_whitespace()
-        .filter_map(|word| word.strip_prefix('#'))
-        .map(|tag| {
-            tag.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '/')
-                .to_string()
-        })
-        .filter(|tag| !tag.is_empty())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
+    let tags = extract_hash_tags(content);
     json!({
         "tags": tags,
         "property": {
@@ -21,6 +11,29 @@ pub(crate) fn build_memo_payload(content: &str) -> Value {
             "hasIncompleteTasks": content.contains("[ ]")
         }
     })
+}
+
+pub(crate) fn extract_hash_tags(content: &str) -> Vec<String> {
+    let mut tags = BTreeSet::new();
+    let mut chars = content.char_indices().peekable();
+    while let Some((_, ch)) = chars.next() {
+        if ch != '#' {
+            continue;
+        }
+        let mut tag = String::new();
+        while let Some((_, next)) = chars.peek().copied() {
+            if next.is_alphanumeric() || next == '_' || next == '-' || next == '/' {
+                tag.push(next);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if !tag.is_empty() {
+            tags.insert(tag.chars().take(64).collect::<String>());
+        }
+    }
+    tags.into_iter().collect()
 }
 
 pub(crate) fn normalize_tag_name(value: &str) -> String {

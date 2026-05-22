@@ -3,6 +3,8 @@ import { route } from "preact-router";
 import { api } from "../api";
 import { MemoEditor } from "../components/MemoEditor";
 import { MemoList } from "../components/MemoList";
+import { CustomSelect } from "../components/CustomSelect";
+import { DatePicker } from "../components/DateTimePicker";
 import type { CurrentUser } from "../App";
 import type { Memo } from "../components/MemoCard";
 import type { MemoPropertyFilter, MemoState, MemoVisibility } from "../memoQuery";
@@ -14,8 +16,29 @@ interface HomeProps {
   currentUser: CurrentUser | null;
 }
 
+const VISIBILITY_OPTIONS: Array<{ value: MemoVisibility | ""; label: string }> = [
+  { value: "", label: "全部可见性" },
+  { value: "PRIVATE", label: "私有" },
+  { value: "PROTECTED", label: "登录可见" },
+  { value: "PUBLIC", label: "公开" },
+];
+
+const PROPERTY_OPTIONS: Array<{ value: MemoPropertyFilter | ""; label: string }> = [
+  { value: "", label: "全部类型" },
+  { value: "has_task_list", label: "任务" },
+  { value: "has_incomplete_tasks", label: "未完成任务" },
+  { value: "has_link", label: "链接" },
+  { value: "has_code", label: "代码" },
+];
+
+const PINNED_OPTIONS: Array<{ value: PinnedFilter; label: string }> = [
+  { value: "", label: "全部置顶状态" },
+  { value: "PINNED", label: "仅置顶" },
+  { value: "UNPINNED", label: "未置顶" },
+];
+
 export function Home({ currentUser }: HomeProps) {
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [createdMemo, setCreatedMemo] = useState<Memo | null>(null);
   const [activeTag, setActiveTag] = useState("");
   const [viewState, setViewState] = useState<MemoState>("NORMAL");
   const [search, setSearch] = useState("");
@@ -60,7 +83,7 @@ export function Home({ currentUser }: HomeProps) {
 
   useEffect(() => {
     fetchTags();
-  }, [fetchTags, refreshKey]);
+  }, [fetchTags]);
 
   useEffect(() => {
     const filters = parseHomeDateFilterParams(window.location.search);
@@ -71,8 +94,19 @@ export function Home({ currentUser }: HomeProps) {
     }
   }, []);
 
-  const handleCreated = () => {
-    setRefreshKey((k) => k + 1);
+  const mergeTagsFromMemo = (memo: Memo) => {
+    const nextTags = memo.payload?.tags ?? [];
+    if (nextTags.length === 0) return;
+    setTags((prev) => [...new Set([...prev, ...nextTags])].sort());
+  };
+
+  const handleCreated = (memo: Memo) => {
+    setCreatedMemo(memo);
+    mergeTagsFromMemo(memo);
+  };
+
+  const handleMemoChanged = (memo: Memo) => {
+    mergeTagsFromMemo(memo);
   };
 
   const handleTagClick = (tag: string) => {
@@ -161,30 +195,19 @@ export function Home({ currentUser }: HomeProps) {
             />
           </label>
 
-          <select
-            class="filter-select"
+          <CustomSelect
             value={visibility}
-            onChange={(e) => setVisibility((e.target as HTMLSelectElement).value as MemoVisibility | "")}
-            aria-label="可见性筛选"
-          >
-            <option value="">全部可见性</option>
-            <option value="PRIVATE">私有</option>
-            <option value="PROTECTED">登录可见</option>
-            <option value="PUBLIC">公开</option>
-          </select>
+            options={VISIBILITY_OPTIONS}
+            onChange={setVisibility}
+            ariaLabel="可见性筛选"
+          />
 
-          <select
-            class="filter-select"
+          <CustomSelect
             value={propertyFilter}
-            onChange={(e) => setPropertyFilter((e.target as HTMLSelectElement).value as MemoPropertyFilter | "")}
-            aria-label="内容类型筛选"
-          >
-            <option value="">全部类型</option>
-            <option value="has_task_list">任务</option>
-            <option value="has_incomplete_tasks">未完成任务</option>
-            <option value="has_link">链接</option>
-            <option value="has_code">代码</option>
-          </select>
+            options={PROPERTY_OPTIONS}
+            onChange={setPropertyFilter}
+            ariaLabel="内容类型筛选"
+          />
 
           <button class="btn btn-ghost btn-sm" onClick={() => setShowAdvanced((value) => !value)}>
             {showAdvanced ? "收起高级" : "高级筛选"}
@@ -213,42 +236,20 @@ export function Home({ currentUser }: HomeProps) {
               value={creator}
               onInput={(e) => setCreator((e.target as HTMLInputElement).value)}
             />
-            <select
-              class="filter-select"
+            <CustomSelect
               value={pinnedFilter}
-              onChange={(e) => setPinnedFilter((e.target as HTMLSelectElement).value as PinnedFilter)}
-              aria-label="置顶状态筛选"
-            >
-              <option value="">全部置顶状态</option>
-              <option value="PINNED">仅置顶</option>
-              <option value="UNPINNED">未置顶</option>
-            </select>
-            <label class="advanced-field">
-              <span>开始日期</span>
-              <input
-                class="form-input"
-                type="date"
-                aria-label="开始日期"
-                value={createdAfter}
-                onInput={(e) => setCreatedAfter((e.target as HTMLInputElement).value)}
-              />
-            </label>
-            <label class="advanced-field">
-              <span>结束日期</span>
-              <input
-                class="form-input"
-                type="date"
-                aria-label="结束日期"
-                value={createdBefore}
-                onInput={(e) => setCreatedBefore((e.target as HTMLInputElement).value)}
-              />
-            </label>
+              options={PINNED_OPTIONS}
+              onChange={setPinnedFilter}
+              ariaLabel="置顶状态筛选"
+            />
+            <DatePicker value={createdAfter} onChange={setCreatedAfter} placeholder="开始日期" />
+            <DatePicker value={createdBefore} onChange={setCreatedBefore} placeholder="结束日期" />
           </div>
         )}
 
         {viewState === "NORMAL" && <MemoEditor onCreated={handleCreated} />}
         <MemoList
-          key={`${activeTag}-${viewState}-${search}-${visibility}-${propertyFilter}-${advancedFilter}-${createdAfter}-${createdBefore}-${refreshKey}`}
+          key={`${activeTag}-${viewState}-${search}-${visibility}-${propertyFilter}-${advancedFilter}-${createdAfter}-${createdBefore}`}
           currentUser={currentUser}
           tag={activeTag || undefined}
           state={viewState}
@@ -258,7 +259,8 @@ export function Home({ currentUser }: HomeProps) {
           advancedFilter={advancedFilter}
           createdAfter={createdAfter}
           createdBefore={createdBefore}
-          refreshKey={refreshKey}
+          createdMemo={createdMemo}
+          onMemoChanged={handleMemoChanged}
           emptyText={viewState === "ARCHIVED" ? "回收站为空" : "暂无备忘录"}
         />
       </div>

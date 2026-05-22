@@ -5,12 +5,11 @@ export function markdownToEditorHtml(markdown: string): string {
 }
 
 export function editorHtmlToMarkdown(root: HTMLElement): string {
-  const blocks: string[] = [];
-  root.childNodes.forEach((node) => {
-    const block = nodeToMarkdown(node).trimEnd();
-    if (block) blocks.push(block);
-  });
-  return blocks.join("\n\n").trim();
+  return Array.from(root.childNodes)
+    .map((node) => nodeToMarkdown(node).trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function nodeToMarkdown(node: Node): string {
@@ -26,6 +25,7 @@ function nodeToMarkdown(node: Node): string {
     const href = node.getAttribute("href") || "";
     return href ? `[${text}](${href})` : text;
   }
+  if (tag === "div" || tag === "p") return inlineChildren(node).trimEnd();
   if (tag === "h1") return `# ${inlineChildren(node)}`;
   if (tag === "h2") return `## ${inlineChildren(node)}`;
   if (tag === "h3") return `### ${inlineChildren(node)}`;
@@ -50,8 +50,7 @@ function inlineChildren(element: HTMLElement): string {
   return Array.from(element.childNodes)
     .map(nodeToMarkdown)
     .join("")
-    .replace(/\u00a0/g, " ")
-    .trim();
+    .replace(/\u00a0/g, " ");
 }
 
 export function dateTimeLocalToUnix(value: string): number | null {
@@ -69,4 +68,29 @@ export function unixToDateTimeLocal(ts: number): string {
 
 export function nowDateTimeLocal(): string {
   return unixToDateTimeLocal(Math.floor(Date.now() / 1000));
+}
+
+export function formatDateTimeLocalLabel(value: string): string {
+  const date = new Date(value);
+  if (!value || !Number.isFinite(date.getTime())) return "选择日期";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}/${month}/${day} ${hour}:${minute}`;
+}
+
+export function buildDateTimeLocal(year: number, month: number, day: number, hour: number, minute: number): string {
+  const date = new Date(year, month - 1, day, hour, minute);
+  return unixToDateTimeLocal(Math.floor(date.getTime() / 1000));
+}
+
+export function extractHashTags(content: string): string[] {
+  const tags = new Set<string>();
+  for (const match of content.matchAll(/#([\p{L}\p{N}_/-]+)/gu)) {
+    const tag = match[1]?.slice(0, 64);
+    if (tag) tags.add(tag);
+  }
+  return [...tags].sort((a, b) => a.localeCompare(b));
 }

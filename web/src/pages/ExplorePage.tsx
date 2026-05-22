@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import { MemoList } from "../components/MemoList";
+import { CustomSelect } from "../components/CustomSelect";
 import type { CurrentUser } from "../App";
 import type { MemoPropertyFilter } from "../memoQuery";
 
@@ -7,6 +8,14 @@ interface ExplorePageProps {
   path: string;
   currentUser: CurrentUser | null;
 }
+
+const PROPERTY_OPTIONS: Array<{ value: MemoPropertyFilter | ""; label: string }> = [
+  { value: "", label: "全部类型" },
+  { value: "has_task_list", label: "任务" },
+  { value: "has_incomplete_tasks", label: "未完成任务" },
+  { value: "has_link", label: "链接" },
+  { value: "has_code", label: "代码" },
+];
 
 export function ExplorePage({ currentUser }: ExplorePageProps) {
   const [search, setSearch] = useState("");
@@ -32,18 +41,12 @@ export function ExplorePage({ currentUser }: ExplorePageProps) {
               onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
             />
           </label>
-          <select
-            class="filter-select"
+          <CustomSelect
             value={propertyFilter}
-            onChange={(e) => setPropertyFilter((e.target as HTMLSelectElement).value as MemoPropertyFilter | "")}
-            aria-label="内容类型筛选"
-          >
-            <option value="">全部类型</option>
-            <option value="has_task_list">任务</option>
-            <option value="has_incomplete_tasks">未完成任务</option>
-            <option value="has_link">链接</option>
-            <option value="has_code">代码</option>
-          </select>
+            options={PROPERTY_OPTIONS}
+            onChange={setPropertyFilter}
+            ariaLabel="内容类型筛选"
+          />
         </div>
         <MemoList
           key={`${search}-${propertyFilter}`}

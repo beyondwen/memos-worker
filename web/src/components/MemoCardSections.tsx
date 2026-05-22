@@ -1,7 +1,13 @@
 import type { Memo } from "./MemoCard";
+import { CustomSelect } from "./CustomSelect";
 
 const VISIBILITY_LABEL = { PRIVATE: "私有", PROTECTED: "登录可见", PUBLIC: "公开" };
 const VISIBILITY_CLASS = { PRIVATE: "vis-PRIVATE", PROTECTED: "vis-PROTECTED", PUBLIC: "vis-PUBLIC" };
+const VISIBILITY_OPTIONS: Array<{ value: Memo["visibility"]; label: string }> = [
+  { value: "PRIVATE", label: "私有" },
+  { value: "PROTECTED", label: "登录可见" },
+  { value: "PUBLIC", label: "公开" },
+];
 
 function formatMemoDate(ts: number) {
   const d = new Date(ts * 1000);
@@ -58,11 +64,13 @@ export function MemoCardEditor({
         style={{ minHeight: "80px", border: "1px solid var(--zinc-200)", borderRadius: "6px", padding: "10px 12px" }}
       />
       <div class="editor-actions">
-        <select value={visibility} onChange={(e) => onVisibilityChange((e.target as HTMLSelectElement).value as Memo["visibility"])}>
-          <option value="PRIVATE">私有</option>
-          <option value="PROTECTED">登录可见</option>
-          <option value="PUBLIC">公开</option>
-        </select>
+        <CustomSelect
+          value={visibility}
+          options={VISIBILITY_OPTIONS}
+          onChange={onVisibilityChange}
+          ariaLabel="可见性"
+          compact
+        />
         <div class="spacer" />
         <button class="btn btn-ghost btn-sm" onClick={onCancel}>取消</button>
         <button class="btn btn-primary btn-sm" onClick={onSave} disabled={saving}>

@@ -26,7 +26,7 @@ import { personalPrimaryNavItems, personalSettingsTabs } from "../web/src/person
 import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
 import { SETTINGS_TABS } from "../web/src/pages/settingsModel";
 import { buildCalendarEventMap, buildCalendarWeeks, shiftMonth } from "../web/src/calendarView";
-import { dateTimeLocalToUnix, unixToDateTimeLocal } from "../web/src/richText";
+import { dateTimeLocalToUnix, extractHashTags, formatDateTimeLocalLabel, unixToDateTimeLocal } from "../web/src/richText";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -293,6 +293,11 @@ describe("rich editor date helpers", () => {
 
   it("rejects blank datetime-local values", () => {
     expect(dateTimeLocalToUnix("")).toBeNull();
+  });
+
+  it("formats editor date labels and extracts inline hash tags", () => {
+    expect(formatDateTimeLocalLabel("2026-05-22T09:08")).toBe("2026/05/22 09:08");
+    expect(extractHashTags("今天#学习 继续 #work-log，#日记/早课 #")).toEqual(["work-log", "学习", "日记/早课"]);
   });
 });
 

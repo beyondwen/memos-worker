@@ -280,14 +280,8 @@
   color: var(--text-secondary);
   font-size: 0.86rem;
 }
-.calendar-country-select select {
+.calendar-country-select .custom-select {
   min-width: 220px;
-  height: 34px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--paper);
-  color: var(--ink);
-  padding: 0 10px;
 }
 .calendar-grid {
   display: grid;
@@ -465,7 +459,7 @@
     align-items: stretch;
     flex-direction: column;
   }
-  .calendar-country-select select {
+  .calendar-country-select .custom-select {
     width: 100%;
   }
   .calendar-day {

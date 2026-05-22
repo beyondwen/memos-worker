@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api";
+import type { Memo } from "./MemoCard";
 import { useFeedback } from "./Feedback";
 import { clearEditorDraft, loadEditorDraft, saveEditorDraft } from "../editorDraft";
 import type { MemoVisibility } from "../memoQuery";
 import { applyMemoTemplate, MEMO_TEMPLATES, type MemoTemplate } from "../memoTemplates";
-import { dateTimeLocalToUnix, nowDateTimeLocal } from "../richText";
+import { dateTimeLocalToUnix, extractHashTags, nowDateTimeLocal } from "../richText";
+import { DateTimePicker } from "./DateTimePicker";
 import { RichTextEditor } from "./RichTextEditor";
 
 interface Attachment { uid: string; filename: string; }
-interface MemoEditorProps { onCreated: (memo: unknown) => void; }
+interface MemoEditorProps { onCreated: (memo: Memo) => void; }
 
 export function MemoEditor({ onCreated }: MemoEditorProps) {
   const { notify } = useFeedback();
@@ -24,6 +26,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const attachmentUids = attachments.map((attachment) => attachment.uid);
+  const hashTags = extractHashTags(content);
 
   useEffect(() => {
     saveEditorDraft(storage, { content, visibility, attachmentUids, createdAt });
@@ -56,7 +59,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         attachmentUids,
       };
       if (createdTs !== null) payload.createdTs = createdTs;
-      const data = await api<{ memo: unknown }>("/api/v1/memos", {
+      const data = await api<{ memo: Memo }>("/api/v1/memos", {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -101,6 +104,14 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         ))}
       </div>
 
+      {hashTags.length > 0 && (
+        <div class="editor-tag-preview" aria-label="内容标签">
+          {hashTags.map((tag) => (
+            <span key={tag}>#{tag}</span>
+          ))}
+        </div>
+      )}
+
       <div class="editor-actions">
         <div class="visibility-segment" aria-label="可见性">
           {(Object.keys(visLabel) as Array<keyof typeof visLabel>).map((key) => (
@@ -116,14 +127,7 @@ export function MemoEditor({ onCreated }: MemoEditorProps) {
         </div>
 
         <input ref={fileRef} type="file" multiple class="hidden-file-input" onChange={handleFile} />
-        <label class="editor-date-field">
-          <span>日期</span>
-          <input
-            type="datetime-local"
-            value={createdAt}
-            onInput={(event) => setCreatedAt((event.target as HTMLInputElement).value)}
-          />
-        </label>
+        <DateTimePicker value={createdAt} onChange={setCreatedAt} />
         <button class="btn btn-ghost btn-sm tool-button" onClick={() => fileRef.current?.click()} disabled={uploading}>
           <span aria-hidden="true">+</span>
           {uploading ? "上传中" : "附件"}

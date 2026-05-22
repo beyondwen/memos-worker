@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
 import type { CurrentUser } from "../App";
+import { CustomSelect } from "../components/CustomSelect";
 import {
   DEFAULT_HOLIDAY_COUNTRIES,
   buildCalendarWeeks,
@@ -107,16 +108,15 @@ export function TimelinePage({ currentUser }: TimelinePageProps) {
             <div class="calendar-title">{calendarMonthLabel(year, month)}</div>
             <div class="settings-record-meta">{monthMemoCount} 条备忘录 · {holidays.length} 个国家/地区假期</div>
           </div>
-          <label class="calendar-country-select">
+          <div class="calendar-country-select">
             <span>国家/地区</span>
-            <select value={country} onChange={(event) => setCountry((event.target as HTMLSelectElement).value)}>
-              {countries.map((item) => (
-                <option key={item.countryCode} value={item.countryCode}>
-                  {item.name} ({item.countryCode})
-                </option>
-              ))}
-            </select>
-          </label>
+            <CustomSelect
+              value={country}
+              options={countries.map((item) => ({ value: item.countryCode, label: `${item.name} (${item.countryCode})` }))}
+              onChange={setCountry}
+              ariaLabel="国家/地区"
+            />
+          </div>
         </div>
 
         {holidayError && <div class="inline-message error">假期数据加载失败：{holidayError}</div>}
