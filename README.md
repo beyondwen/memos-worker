@@ -123,13 +123,12 @@ npm run deploy
 - `npm run deploy:api`：部署 Rust Worker 后端，只承载 `/api/*`、`/file/*`、定时任务、D1 和 R2。
 - `npm run deploy:web`：部署 `dist/static` 到 Cloudflare Pages，默认项目名为 `memos-worker-pages`。
 
-当前生产域名规划：
+自定义域名示例：
 
-- `https://notes.freedomjw.dpdns.org/*` 指向 Pages。
+- `https://notes.example.com/*` 指向 Pages。
 - DNS 需要一条 CNAME：`notes` -> `memos-worker-pages.pages.dev`，建议开启代理。
-- Rust Worker Routes 负责 `notes.freedomjw.dpdns.org/api/*` 和 `notes.freedomjw.dpdns.org/file/*`。
-- Pages 通过 `web/public/_redirects` 把 `/api/*` 和 `/file/*`
-  反向代理到 Rust Worker，作为 Pages 预览地址和无 Worker Routes 场景下的兜底。
+- Rust Worker Routes 负责 `notes.example.com/api/*` 和 `notes.example.com/file/*`。
+- Pages 通过 `web/public/_redirects` 保留 SPA fallback；API 和文件路由由 Worker Routes 接管。
 
 同域名部署时前端不需要额外配置。若临时使用不同域名，可在构建
 Pages 前设置 `VITE_API_BASE_URL`，例如：

@@ -41,7 +41,8 @@ function AppContent() {
     try {
       const data = await api<{ user: CurrentUser }>("/api/v1/auth/user");
       setCurrentUser(data.user);
-    } catch {
+    } catch (err) {
+      console.warn("[auth] current user check failed:", err);
       setCurrentUser(null);
     } finally {
       setAuthLoaded(true);
@@ -69,8 +70,8 @@ function AppContent() {
   const handleLogout = useCallback(async () => {
     try {
       await api("/api/v1/auth/signout", { method: "POST" });
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[auth] signout failed:", err);
     }
     clearToken();
     setCurrentUser(null);

@@ -42,7 +42,8 @@ export function loadEditorDraft(storage: StorageLike | null = getBrowserStorage(
         : [],
       savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0,
     };
-  } catch {
+  } catch (err) {
+    console.warn("[editor-draft] draft parse failed:", err);
     return null;
   }
 }

@@ -31,8 +31,8 @@ export function Header({ currentUser, onLogout, activePath }: HeaderProps) {
     try {
       const data = await api<{ unreadCount: number }>("/api/v1/inbox");
       setUnreadCount(data.unreadCount || 0);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[header] inbox refresh failed:", err);
     }
   }, [currentUser]);
 
@@ -52,8 +52,8 @@ export function Header({ currentUser, onLogout, activePath }: HeaderProps) {
       try {
         const event = JSON.parse(message.data);
         if (shouldRefreshForSseEvent(event)) refreshInbox();
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn("[header] malformed SSE payload:", err);
       }
     };
     source.addEventListener("memo.comment.created", refresh);

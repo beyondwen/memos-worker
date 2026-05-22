@@ -108,8 +108,8 @@ export function MemoList({
       try {
         const event = JSON.parse(message.data);
         if (shouldRefreshForSseEvent(event)) fetchMemos();
-      } catch {
-        // Ignore malformed SSE payloads.
+      } catch (err) {
+        console.warn("[memo-list] malformed SSE payload:", err);
       }
     };
     for (const type of ["memo.created", "memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.bulk.updated", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {

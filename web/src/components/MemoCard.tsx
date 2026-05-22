@@ -181,8 +181,8 @@ export function MemoCard({
       );
       setReactions(data.reactions);
       setReactionsLoaded(true);
-    } catch {
-      // ignore
+    } catch (err) {
+      notify(`加载表态失败：${(err as Error).message}`, "error");
     }
   }, [memo.uid, reactionsLoaded]);
 
@@ -223,8 +223,8 @@ export function MemoCard({
       );
       setComments(data.memos);
       setCommentsLoaded(true);
-    } catch {
-      // ignore
+    } catch (err) {
+      notify(`加载评论失败：${(err as Error).message}`, "error");
     }
   }, [memo.uid, commentsLoaded]);
 

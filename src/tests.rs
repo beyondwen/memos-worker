@@ -297,6 +297,47 @@ fn parse_ai_relation_suggestions_drops_unknown_memos() {
     );
 }
 
+#[test]
+fn requested_relation_uids_normalizes_deduplicates_and_skips_self() {
+    let body = json!({
+        "relations": [
+            { "memo": "memos/m_related" },
+            { "memo": " https://notes.local/memos/m_related " },
+            { "memo": "#/memos/m_hash" },
+            { "memo": "m_current" },
+            { "memo": "" },
+            { "memo": "m_other" }
+        ]
+    });
+
+    assert_eq!(
+        requested_relation_uids(&body, "m_current"),
+        vec!["m_related".to_string(), "m_hash".to_string(), "m_other".to_string()]
+    );
+}
+
+#[test]
+fn relation_suggestions_payload_includes_ai_fallback_warning() {
+    let suggestions = vec![json!({
+        "memo": "memos/m_local",
+        "content": "local",
+        "reason": "标签或关键词相近",
+        "confidence": 0.6,
+        "source": "local"
+    })];
+
+    let payload = relation_suggestions_payload(
+        suggestions.clone(),
+        RelationSuggestionSource::LocalFallback {
+            warning: Some("AI API returned HTTP 502".to_string()),
+        },
+    );
+
+    assert_eq!(payload["suggestions"], json!(suggestions));
+    assert_eq!(payload["source"], "local");
+    assert_eq!(payload["warning"], "AI API returned HTTP 502");
+}
+
 fn sample_memo() -> DbMemo {
     DbMemo {
         id: 1,

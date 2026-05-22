@@ -10,25 +10,18 @@ import { AccountSettingsTab } from "./AccountSettingsTab";
 import { DataSettingsTab } from "./DataSettingsTab";
 import { IntegrationSettingsTab } from "./IntegrationSettingsTab";
 import {
-  type AiSettings,
   type Attachment,
   type AuditLog,
-  type BackupItem,
-  type BackupPreview,
-  type MigrationPreview,
-  type MigrationProgress,
-  type MigrationResult,
   type NewPat,
   type Pat,
   type SettingsTab,
-  type TagItem,
   type UserStats,
   type Webhook,
   type WebhookDelivery,
 } from "./settingsModel";
-import { runMigrationStream } from "./settingsMigration";
-import { buildAiSettingsPayload, buildMigrationPayload, buildMigrationProgressView } from "./settingsPageHelpers";
+import { reportSettingsLoadError } from "./settingsErrors";
 import { AuditSettingsTab, MaintenanceSettingsTab, SettingsTabBar } from "./settingsTabs";
+import { useSettingsDataController } from "./useSettingsDataController";
 
 interface SettingsPageProps {
   path: string;
@@ -63,28 +56,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [testingWebhookId, setTestingWebhookId] = useState<number | null>(null);
   const [unattachedAttachments, setUnattachedAttachments] = useState<Attachment[]>([]);
   const [deletingAttachmentUid, setDeletingAttachmentUid] = useState("");
-  const [backupCreating, setBackupCreating] = useState(false);
-  const [backups, setBackups] = useState<BackupItem[]>([]);
-  const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(null);
-  const [restoringBackupKey, setRestoringBackupKey] = useState("");
-  const [migrationBaseUrl, setMigrationBaseUrl] = useState("");
-  const [migrationToken, setMigrationToken] = useState("");
-  const [migrationIncludeArchived, setMigrationIncludeArchived] = useState(false);
-  const [migrationPreview, setMigrationPreview] = useState<MigrationPreview | null>(null);
-  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
-  const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
-  const [migrationPreviewing, setMigrationPreviewing] = useState(false);
-  const [migrationImporting, setMigrationImporting] = useState(false);
-  const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
-  const [aiModel, setAiModel] = useState("gpt-4o-mini");
-  const [aiApiKey, setAiApiKey] = useState("");
-  const [aiConfigured, setAiConfigured] = useState(false);
-  const [aiSaving, setAiSaving] = useState(false);
-  const [aiTesting, setAiTesting] = useState(false);
-  const [tags, setTags] = useState<TagItem[]>([]);
-  const [tagFrom, setTagFrom] = useState("");
-  const [tagTo, setTagTo] = useState("");
-  const [tagSaving, setTagSaving] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [instanceName, setInstanceName] = useState("Memos Worker");
@@ -122,8 +93,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
         `/api/v1/users/${currentUser.username}/access-tokens`
       );
       setPats(data.accessTokens);
-    } catch {
-      // ignore
+    } catch (err) {
+      reportSettingsLoadError("访问令牌", err);
     }
   }, [currentUser]);
 
@@ -136,8 +107,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     try {
       const data = await api<{ webhooks: Webhook[] }>("/api/v1/webhooks");
       setWebhooks(data.webhooks);
-    } catch {
-      // ignore
+    } catch (err) {
+      reportSettingsLoadError("Webhook", err);
     }
   }, [currentUser]);
 
@@ -146,8 +117,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     try {
       const data = await api<{ deliveries: WebhookDelivery[] }>("/api/v1/webhooks/deliveries");
       setWebhookDeliveries(data.deliveries);
-    } catch {
-      // ignore
+    } catch (err) {
+      reportSettingsLoadError("Webhook 投递记录", err);
     }
   }, [currentUser]);
 
@@ -160,51 +131,18 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       ]);
       setInstanceName(instance.name);
       setStats(userStats.stats);
-    } catch {
-      // ignore
+    } catch (err) {
+      reportSettingsLoadError("实例概览", err, notify);
     }
-  }, [currentUser]);
+  }, [currentUser, notify]);
 
   const fetchUnattachedAttachments = useCallback(async () => {
     if (!currentUser) return;
     try {
       const data = await api<{ attachments: Attachment[] }>("/api/v1/attachments?unattached=true");
       setUnattachedAttachments(data.attachments);
-    } catch {
-      // ignore
-    }
-  }, [currentUser]);
-
-  const fetchBackups = useCallback(async () => {
-    if (!currentUser || currentUser.role !== "ADMIN") return;
-    try {
-      const data = await api<{ backups: BackupItem[] }>("/api/v1/backups");
-      setBackups(data.backups);
-    } catch {
-      // ignore
-    }
-  }, [currentUser]);
-
-  const fetchAiSettings = useCallback(async () => {
-    if (!currentUser || currentUser.role !== "ADMIN") return;
-    try {
-      const data = await api<{ settings: AiSettings }>("/api/v1/ai/settings");
-      setAiBaseUrl(data.settings.baseUrl);
-      setAiModel(data.settings.model);
-      setAiConfigured(data.settings.configured);
-      setAiApiKey("");
-    } catch {
-      // ignore
-    }
-  }, [currentUser]);
-
-  const fetchTags = useCallback(async () => {
-    if (!currentUser) return;
-    try {
-      const data = await api<{ tags: TagItem[] }>("/api/v1/tags");
-      setTags(data.tags);
-    } catch {
-      // ignore
+    } catch (err) {
+      reportSettingsLoadError("未绑定附件", err);
     }
   }, [currentUser]);
 
@@ -213,8 +151,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     try {
       const data = await api<{ logs: AuditLog[] }>("/api/v1/audit-logs");
       setAuditLogs(data.logs);
-    } catch {
-      // ignore
+    } catch (err) {
+      reportSettingsLoadError("审计日志", err);
     }
   }, [currentUser]);
 
@@ -222,12 +160,17 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     fetchWebhooks();
     fetchWebhookDeliveries();
     fetchUnattachedAttachments();
-    fetchBackups();
-    fetchAiSettings();
-    fetchTags();
     fetchAuditLogs();
     fetchOverview();
-  }, [fetchAiSettings, fetchAuditLogs, fetchBackups, fetchOverview, fetchTags, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
+  }, [fetchAuditLogs, fetchOverview, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
+
+  const dataSettings = useSettingsDataController({
+    currentUser,
+    notify,
+    confirm,
+    refreshAuditLogs: fetchAuditLogs,
+    refreshOverview: fetchOverview,
+  });
 
   if (!currentUser) return null;
 
@@ -338,12 +281,16 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
 
   const handleToggleWebhook = async (webhook: Webhook) => {
     const next = webhook.rowStatus === "NORMAL" ? "ARCHIVED" : "NORMAL";
-    await api(`/api/v1/webhooks/${webhook.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ rowStatus: next }),
-    });
-    fetchWebhooks();
-    fetchWebhookDeliveries();
+    try {
+      await api(`/api/v1/webhooks/${webhook.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ rowStatus: next }),
+      });
+      fetchWebhooks();
+      fetchWebhookDeliveries();
+    } catch (err) {
+      notify(`更新 Webhook 失败：${(err as Error).message}`, "error");
+    }
   };
 
   const handleTestWebhook = async (webhook: Webhook) => {
@@ -367,9 +314,14 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       danger: true,
     });
     if (!ok) return;
-    await api(`/api/v1/webhooks/${webhook.id}`, { method: "DELETE" });
-    fetchWebhooks();
-    fetchWebhookDeliveries();
+    try {
+      await api(`/api/v1/webhooks/${webhook.id}`, { method: "DELETE" });
+      fetchWebhooks();
+      fetchWebhookDeliveries();
+      notify("Webhook 已删除", "success");
+    } catch (err) {
+      notify(`删除 Webhook 失败：${(err as Error).message}`, "error");
+    }
   };
 
   const handleRetryWebhookDelivery = async (delivery: WebhookDelivery) => {
@@ -382,133 +334,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       notify(`重试失败：${(err as Error).message}`, "error");
     } finally {
       setRetryingDeliveryId(null);
-    }
-  };
-
-  const handleExport = async () => {
-    try {
-      const data = await api<unknown>("/api/v1/export/memos");
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `memos-export-${new Date().toISOString().slice(0, 10)}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      notify(`导出失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const handleImport = async (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    try {
-      const payload = JSON.parse(await file.text());
-      const result = await api<{ imported: number }>("/api/v1/import/memos", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      notify(`已导入 ${result.imported} 条备忘录`, "success");
-    } catch (err) {
-      notify(`导入失败：${(err as Error).message}`, "error");
-    } finally {
-      input.value = "";
-    }
-  };
-
-  const handleSaveAiSettings = async () => {
-    setAiSaving(true);
-    try {
-      const data = await api<{ settings: AiSettings }>("/api/v1/ai/settings", {
-        method: "PATCH",
-        body: JSON.stringify(buildAiSettingsPayload({ baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey })),
-      });
-      setAiBaseUrl(data.settings.baseUrl);
-      setAiModel(data.settings.model);
-      setAiConfigured(data.settings.configured);
-      setAiApiKey("");
-      notify("AI 设置已保存", "success");
-    } catch (err) {
-      notify(`保存 AI 设置失败：${(err as Error).message}`, "error");
-    } finally {
-      setAiSaving(false);
-    }
-  };
-
-  const handleTestAiSettings = async () => {
-    setAiTesting(true);
-    try {
-      await api("/api/v1/ai/settings/test", {
-        method: "POST",
-        body: JSON.stringify(buildAiSettingsPayload({ baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey })),
-      });
-      notify("AI 连接测试通过", "success");
-    } catch (err) {
-      notify(`AI 连接测试失败：${(err as Error).message}`, "error");
-    } finally {
-      setAiTesting(false);
-    }
-  };
-
-  const handlePreviewMigration = async () => {
-    setMigrationPreviewing(true);
-    setMigrationResult(null);
-    setMigrationProgress(null);
-    try {
-      const data = await api<{ preview: MigrationPreview }>("/api/v1/migration/memos/preview", {
-        method: "POST",
-        body: JSON.stringify(buildMigrationPayload({ baseUrl: migrationBaseUrl, accessToken: migrationToken, includeArchived: migrationIncludeArchived })),
-      });
-      setMigrationPreview(data.preview);
-      notify(`可迁移 ${data.preview.memoCount} 条备忘录`, "success");
-    } catch (err) {
-      setMigrationPreview(null);
-      notify(`预检失败：${(err as Error).message}`, "error");
-    } finally {
-      setMigrationPreviewing(false);
-    }
-  };
-
-  const handleRunMigration = async () => {
-    const count = migrationPreview?.memoCount;
-    const ok = await confirm({
-      title: "开始迁移？",
-      message: count === undefined
-        ? "会从原版 Memos 拉取数据并导入当前账号，重复记录会自动跳过。"
-        : `将尝试导入 ${count} 条备忘录，重复记录会自动跳过。`,
-      confirmText: "开始迁移",
-    });
-    if (!ok) return;
-    setMigrationImporting(true);
-    setMigrationResult(null);
-    setMigrationProgress({
-      phase: "fetching",
-      processed: 0,
-      imported: 0,
-      skipped: 0,
-      memoCount: 0,
-      attachmentCount: 0,
-      relationCount: 0,
-      archivedCount: 0,
-      truncated: false,
-    });
-    try {
-      const result = await runMigrationStream("/api/v1/migration/memos/import-stream", buildMigrationPayload({ baseUrl: migrationBaseUrl, accessToken: migrationToken, includeArchived: migrationIncludeArchived }), (progress) => {
-        setMigrationProgress(progress);
-      });
-      setMigrationProgress(result);
-      setMigrationResult(result);
-      setMigrationPreview(result);
-      await fetchTags();
-      await fetchAuditLogs();
-      await fetchOverview();
-      notify(`已导入 ${result.imported} 条，跳过 ${result.skipped} 条`, "success");
-    } catch (err) {
-      notify(`迁移失败：${(err as Error).message}`, "error");
-    } finally {
-      setMigrationImporting(false);
     }
   };
 
@@ -529,55 +354,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       notify(`删除附件失败：${(err as Error).message}`, "error");
     } finally {
       setDeletingAttachmentUid("");
-    }
-  };
-
-  const handleCreateBackup = async () => {
-    setBackupCreating(true);
-    try {
-      const data = await api<{ backup: { key: string; size: number } }>("/api/v1/backups", { method: "POST" });
-      await fetchBackups();
-      notify(`备份已创建：${data.backup.key}`, "success");
-    } catch (err) {
-      notify(`创建备份失败：${(err as Error).message}`, "error");
-    } finally {
-      setBackupCreating(false);
-    }
-  };
-
-  const handlePreviewBackup = async (backup: BackupItem) => {
-    try {
-      const data = await api<{ preview: BackupPreview }>("/api/v1/backups/preview", {
-        method: "POST",
-        body: JSON.stringify({ key: backup.key }),
-      });
-      setBackupPreview(data.preview);
-      setRestoringBackupKey(backup.key);
-    } catch (err) {
-      notify(`预览备份失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const handleRestoreBackup = async () => {
-    if (!restoringBackupKey) return;
-    const ok = await confirm({
-      title: "恢复备份？",
-      message: "会按备份内容合并恢复备忘录、附件元数据和引用关系。",
-      confirmText: "恢复",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await api("/api/v1/backups/restore", {
-        method: "POST",
-        body: JSON.stringify({ key: restoringBackupKey }),
-      });
-      setBackupPreview(null);
-      setRestoringBackupKey("");
-      await fetchAuditLogs();
-      notify("备份已恢复", "success");
-    } catch (err) {
-      notify(`恢复备份失败：${(err as Error).message}`, "error");
     }
   };
 
@@ -603,54 +379,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
-  const handleRenameTag = async (e: Event) => {
-    e.preventDefault();
-    setTagSaving(true);
-    try {
-      const data = await api<{ updated: number }>("/api/v1/tags/rename", {
-        method: "POST",
-        body: JSON.stringify({ from: tagFrom, to: tagTo }),
-      });
-      setTagFrom("");
-      setTagTo("");
-      await fetchTags();
-      await fetchAuditLogs();
-      notify(`已更新 ${data.updated} 条备忘录`, "success");
-    } catch (err) {
-      notify(`更新标签失败：${(err as Error).message}`, "error");
-    } finally {
-      setTagSaving(false);
-    }
-  };
-
-  const resetMigrationDraft = () => {
-    setMigrationPreview(null);
-    setMigrationResult(null);
-    setMigrationProgress(null);
-  };
-
-  const handleMigrationBaseUrlChange = (value: string) => {
-    setMigrationBaseUrl(value);
-    resetMigrationDraft();
-  };
-
-  const handleMigrationTokenChange = (value: string) => {
-    setMigrationToken(value);
-    resetMigrationDraft();
-  };
-
-  const handleMigrationIncludeArchivedChange = (value: boolean) => {
-    setMigrationIncludeArchived(value);
-    resetMigrationDraft();
-  };
-
   const attachmentSummary = attachmentCleanupSummary(unattachedAttachments);
-  const migrationProgressView = buildMigrationProgressView({
-    previewing: migrationPreviewing,
-    importing: migrationImporting,
-    preview: migrationPreview,
-    progress: migrationProgress,
-  });
 
   return (
     <div class="settings-layout">
@@ -722,52 +451,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       )}
 
       {activeSettingsTab === "data" && currentUser.role === "ADMIN" && (
-        <DataSettingsTab
-          backups={backups}
-          backupCreating={backupCreating}
-          backupPreview={backupPreview}
-          aiBaseUrl={aiBaseUrl}
-          aiModel={aiModel}
-          aiApiKey={aiApiKey}
-          aiConfigured={aiConfigured}
-          aiSaving={aiSaving}
-          aiTesting={aiTesting}
-          migrationBaseUrl={migrationBaseUrl}
-          migrationToken={migrationToken}
-          migrationIncludeArchived={migrationIncludeArchived}
-          migrationPreview={migrationPreview}
-          migrationResult={migrationResult}
-          migrationProgress={migrationProgress}
-          migrationPreviewing={migrationPreviewing}
-          migrationImporting={migrationImporting}
-          tags={tags}
-          tagFrom={tagFrom}
-          tagTo={tagTo}
-          tagSaving={tagSaving}
-          migrationProgressVisible={migrationProgressView.visible}
-          migrationKnownTotal={migrationProgressView.knownTotal}
-          migrationProgressPercent={migrationProgressView.percent}
-          migrationProgressTitle={migrationProgressView.title}
-          migrationProgressDetail={migrationProgressView.detail}
-          onExport={handleExport}
-          onImport={handleImport}
-          onCreateBackup={handleCreateBackup}
-          onPreviewBackup={handlePreviewBackup}
-          onRestoreBackup={handleRestoreBackup}
-          onAiBaseUrlChange={setAiBaseUrl}
-          onAiModelChange={setAiModel}
-          onAiApiKeyChange={setAiApiKey}
-          onTestAiSettings={handleTestAiSettings}
-          onSaveAiSettings={handleSaveAiSettings}
-          onMigrationBaseUrlChange={handleMigrationBaseUrlChange}
-          onMigrationTokenChange={handleMigrationTokenChange}
-          onMigrationIncludeArchivedChange={handleMigrationIncludeArchivedChange}
-          onPreviewMigration={handlePreviewMigration}
-          onRunMigration={handleRunMigration}
-          onTagFromChange={setTagFrom}
-          onTagToChange={setTagTo}
-          onRenameTag={handleRenameTag}
-        />
+        <DataSettingsTab {...dataSettings} />
       )}
 
       {activeSettingsTab === "maintenance" && (

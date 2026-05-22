@@ -1,4 +1,10 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+type ViteImportMeta = ImportMeta & {
+  env?: {
+    VITE_API_BASE_URL?: string;
+  };
+};
+
+const API_BASE_URL = ((import.meta as ViteImportMeta).env?.VITE_API_BASE_URL || "").trim();
 
 function getBrowserStorage(): Storage | null {
   return typeof window === "undefined" ? null : window.localStorage;
@@ -33,7 +39,7 @@ export async function api<T = unknown>(
   const response = await apiFetch(path, options);
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const body = await response.json().catch(() => ({})) as { error?: string };
     throw new Error(body.error || `HTTP ${response.status}`);
   }
 
@@ -86,13 +92,14 @@ async function doRefresh(): Promise<boolean> {
       credentials: "include",
     });
     if (!res.ok) return false;
-    const data = await res.json();
+    const data = await res.json() as { accessToken?: string };
     if (data.accessToken) {
       setToken(data.accessToken);
       return true;
     }
     return false;
-  } catch {
+  } catch (err) {
+    console.warn("[api] token refresh failed:", err);
     return false;
   }
 }

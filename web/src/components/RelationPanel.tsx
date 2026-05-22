@@ -10,6 +10,12 @@ import {
 } from "../relationView";
 import { useFeedback } from "./Feedback";
 
+interface RelationSuggestionResponse {
+  suggestions: RelationSuggestion[];
+  source?: "ai" | "local";
+  warning?: string;
+}
+
 interface RelationPanelProps {
   memoUid: string;
   canEdit: boolean;
@@ -53,11 +59,15 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
   const suggestRelations = async () => {
     setSuggesting(true);
     try {
-      const data = await api<{ suggestions: RelationSuggestion[] }>(`/api/v1/memos/${memoUid}/relations/suggest`, {
+      const data = await api<RelationSuggestionResponse>(`/api/v1/memos/${memoUid}/relations/suggest`, {
         method: "POST",
       });
       setSuggestions(data.suggestions);
-      notify(data.suggestions.length > 0 ? `识别到 ${data.suggestions.length} 条候选关联` : "暂未发现明显关联", "success");
+      if (data.warning) {
+        notify(`AI 不可用，已使用本地推荐：${data.warning}`, "info");
+      } else {
+        notify(data.suggestions.length > 0 ? `识别到 ${data.suggestions.length} 条候选关联` : "暂未发现明显关联", "success");
+      }
     } catch (err) {
       notify(`AI 识别失败：${(err as Error).message}`, "error");
     } finally {

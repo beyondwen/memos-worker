@@ -56,8 +56,8 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         `/api/v1/memos/${uid}/comments`
       );
       setComments(data.memos);
-    } catch {
-      // ignore
+    } catch (err) {
+      notify(`加载评论失败：${(err as Error).message}`, "error");
     }
   }, [uid]);
 
@@ -68,8 +68,8 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         `/api/v1/memos/${uid}/reactions`
       );
       setReactions(data.reactions);
-    } catch {
-      // ignore
+    } catch (err) {
+      notify(`加载表态失败：${(err as Error).message}`, "error");
     }
   }, [uid]);
 
@@ -90,8 +90,8 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         fetchMemo();
         fetchComments();
         fetchReactions();
-      } catch {
-        // Ignore malformed SSE payloads.
+      } catch (err) {
+        console.warn("[memo-detail] malformed SSE payload:", err);
       }
     };
     for (const type of ["memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {

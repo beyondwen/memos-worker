@@ -30,7 +30,8 @@ export function Home({ currentUser }: HomeProps) {
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("memos_recent_searches") || "[]");
-    } catch {
+    } catch (err) {
+      console.warn("[home] recent searches parse failed:", err);
       return [];
     }
   });
@@ -52,8 +53,8 @@ export function Home({ currentUser }: HomeProps) {
         }
       }
       setTags([...tagSet].sort());
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[home] tag refresh failed:", err);
     }
   }, []);
 

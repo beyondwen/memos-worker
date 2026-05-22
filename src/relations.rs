@@ -44,30 +44,28 @@ pub(crate) async fn set_relations(
         .json()
         .await
         .map_err(|_| AppError::new(400, "Invalid JSON"))?;
-    db(env)?
-        .prepare("DELETE FROM memo_relation WHERE memo_id = ? AND type = 'REFERENCE'")
-        .bind(&[js_num(memo.id)])?
-        .run()
-        .await?;
-    if let Some(relations) = body.get("relations").and_then(Value::as_array) {
-        for rel in relations {
-            let related_uid = rel
-                .get("memo")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .trim_start_matches("memos/");
-            if related_uid.is_empty() || related_uid == uid {
-                continue;
-            }
-            if let Some(related) = get_memo_by_uid(env, related_uid).await? {
-                db(env)?.prepare("INSERT OR IGNORE INTO memo_relation (memo_id, related_memo_id, type) VALUES (?, ?, 'REFERENCE')")
-                    .bind(&[js_num(memo.id), js_num(related.id)])?
-                    .run()
-                    .await?;
-            }
+    let requested_uids = requested_relation_uids(&body, uid);
+    let mut related_ids = Vec::with_capacity(requested_uids.len());
+    for related_uid in requested_uids {
+        let related = get_memo_by_uid(env, &related_uid)
+            .await?
+            .ok_or_else(|| AppError::new(400, format!("Related memo not found: {}", related_uid)))?;
+        if !can_read(&related, viewer) {
+            return Err(AppError::new(403, "Forbidden related memo"));
         }
+        related_ids.push(related.id);
     }
+
+    let database = db(env)?;
+    let mut statements = vec![database
+        .prepare("DELETE FROM memo_relation WHERE memo_id = ? AND type = 'REFERENCE'")
+        .bind(&[js_num(memo.id)])?];
+    for related_id in related_ids {
+        statements.push(database.prepare("INSERT OR IGNORE INTO memo_relation (memo_id, related_memo_id, type) VALUES (?, ?, 'REFERENCE')")
+            .bind(&[js_num(memo.id), js_num(related_id)])?);
+    }
+    database.batch(statements).await?;
+
     emit_memo_change(
         env,
         "memo.updated",
@@ -104,7 +102,11 @@ pub(crate) async fn suggest_memo_relations(
         AI_CANDIDATE_LIMIT,
     );
     if ranked.is_empty() {
-        return json_response(json!({ "suggestions": [] }), 200).map_err(AppError::from);
+        return json_response(
+            relation_suggestions_payload(Vec::new(), RelationSuggestionSource::Local),
+            200,
+        )
+        .map_err(AppError::from);
     }
 
     let candidate_content: HashMap<String, String> = ranked
@@ -112,30 +114,100 @@ pub(crate) async fn suggest_memo_relations(
         .map(|candidate| (candidate.uid.clone(), candidate.content.clone()))
         .collect();
     let settings = resolve_ai_settings(env).await?;
-    let ai_suggestions = if settings.api_key.trim().is_empty() {
-        Vec::new()
+    let (suggestions, source) = if settings.api_key.trim().is_empty() {
+        (local_relation_suggestions(&ranked), RelationSuggestionSource::Local)
     } else {
-        request_ai_relation_suggestions(&settings, &memo, &ranked, &candidate_content)
-            .await
-            .unwrap_or_default()
-    };
-    let suggestions = if ai_suggestions.is_empty() {
-        ranked
-            .iter()
-            .take(5)
-            .map(|candidate| {
-                json!({
-                    "memo": format!("memos/{}", candidate.uid),
-                    "content": candidate.content,
-                    "reason": "标签或关键词相近",
-                    "confidence": (candidate.score / 10.0).clamp(0.35, 0.75),
-                    "source": "local"
-                })
-            })
-            .collect()
-    } else {
-        ai_suggestions
+        match request_ai_relation_suggestions(&settings, &memo, &ranked, &candidate_content).await {
+            Ok(ai_suggestions) if !ai_suggestions.is_empty() => {
+                (ai_suggestions, RelationSuggestionSource::Ai)
+            }
+            Ok(_) => (local_relation_suggestions(&ranked), RelationSuggestionSource::Local),
+            Err(err) => (
+                local_relation_suggestions(&ranked),
+                RelationSuggestionSource::LocalFallback {
+                    warning: Some(err.message),
+                },
+            ),
+        }
     };
 
-    json_response(json!({ "suggestions": suggestions }), 200).map_err(AppError::from)
+    json_response(relation_suggestions_payload(suggestions, source), 200).map_err(AppError::from)
+}
+
+pub(crate) enum RelationSuggestionSource {
+    Ai,
+    Local,
+    LocalFallback { warning: Option<String> },
+}
+
+pub(crate) fn relation_suggestions_payload(
+    suggestions: Vec<Value>,
+    source: RelationSuggestionSource,
+) -> Value {
+    let (source, warning) = match source {
+        RelationSuggestionSource::Ai => ("ai", None),
+        RelationSuggestionSource::Local => ("local", None),
+        RelationSuggestionSource::LocalFallback { warning } => ("local", warning),
+    };
+    let mut payload = json!({
+        "suggestions": suggestions,
+        "source": source,
+    });
+    if let Some(warning) = warning.filter(|message| !message.trim().is_empty()) {
+        payload["warning"] = json!(warning);
+    }
+    payload
+}
+
+pub(crate) fn requested_relation_uids(body: &Value, current_uid: &str) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut uids = Vec::new();
+    let Some(relations) = body.get("relations").and_then(Value::as_array) else {
+        return uids;
+    };
+    for relation in relations {
+        let uid = relation
+            .get("memo")
+            .and_then(Value::as_str)
+            .map(relation_uid_from_ref)
+            .unwrap_or_else(String::new);
+        if uid.is_empty() || uid == current_uid || !seen.insert(uid.clone()) {
+            continue;
+        }
+        uids.push(uid);
+    }
+    uids
+}
+
+fn relation_uid_from_ref(value: &str) -> String {
+    let trimmed = value.trim();
+    let uid_start = trimmed
+        .find("/memos/")
+        .map(|index| index + "/memos/".len());
+    let raw_uid = match uid_start {
+        Some(index) => &trimmed[index..],
+        None => trimmed.strip_prefix("memos/").unwrap_or(trimmed),
+    };
+    raw_uid
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, '?' | '#' | ',' | '/'))
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn local_relation_suggestions(ranked: &[RankedRelationCandidate]) -> Vec<Value> {
+    ranked
+        .iter()
+        .take(5)
+        .map(|candidate| {
+            json!({
+                "memo": format!("memos/{}", candidate.uid),
+                "content": candidate.content,
+                "reason": "标签或关键词相近",
+                "confidence": (candidate.score / 10.0).clamp(0.35, 0.75),
+                "source": "local"
+            })
+        })
+        .collect()
 }
