@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS webhook_delivery;
+DROP TABLE IF EXISTS webhook;
+DROP TABLE IF EXISTS inbox;
+DROP TABLE IF EXISTS memo_share;
+DROP TABLE IF EXISTS reaction;

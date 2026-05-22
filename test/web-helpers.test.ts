@@ -21,6 +21,7 @@ import { buildHomeDateFilterPath, parseHomeDateFilterParams, stripHomeFilterPara
 import { shouldOpenMemoDetailFromCardClick } from "../web/src/cardClick";
 import { isHeaderNavActive } from "../web/src/headerNav";
 import { shouldAutoLoadNextMemoPage } from "../web/src/memoListPaging";
+import { MEMO_LIST_SSE_REFRESH_DEBOUNCE_MS, scheduleDebouncedRefresh } from "../web/src/sseRefresh";
 import { personalPrimaryNavItems, personalSettingsTabs } from "../web/src/personalMode";
 import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
 import { SETTINGS_TABS } from "../web/src/pages/settingsModel";
@@ -91,6 +92,26 @@ describe("memo list paging", () => {
       loading: false,
       nextPageToken: "",
     })).toBe(false);
+  });
+});
+
+describe("SSE refresh scheduling", () => {
+  it("replaces pending memo list refresh timers", () => {
+    const cleared: number[] = [];
+    const scheduled: number[] = [];
+    const timer = scheduleDebouncedRefresh(
+      7,
+      (_callback, delay) => {
+        scheduled.push(delay);
+        return 9;
+      },
+      (id) => cleared.push(id),
+      () => undefined,
+    );
+
+    expect(timer).toBe(9);
+    expect(cleared).toEqual([7]);
+    expect(scheduled).toEqual([MEMO_LIST_SSE_REFRESH_DEBOUNCE_MS]);
   });
 });
 

@@ -87,6 +87,42 @@ fn memo_list_index_migration_matches_home_query_order() {
 }
 
 #[test]
+fn personal_cleanup_migration_drops_removed_feature_tables() {
+    let migration = std::fs::read_to_string("migrations/0006_personal_cleanup.sql")
+        .expect("personal cleanup migration");
+
+    for table in [
+        "reaction",
+        "memo_share",
+        "inbox",
+        "webhook_delivery",
+        "webhook",
+    ] {
+        assert!(migration.contains(&format!("DROP TABLE IF EXISTS {}", table)));
+    }
+}
+
+#[test]
+fn backup_retention_prunes_oldest_backup_keys() {
+    let backups = vec![
+        (
+            "backups/new.json".to_string(),
+            "2026-05-22T10:00:00Z".to_string(),
+        ),
+        (
+            "backups/old.json".to_string(),
+            "2026-05-20T10:00:00Z".to_string(),
+        ),
+        (
+            "backups/mid.json".to_string(),
+            "2026-05-21T10:00:00Z".to_string(),
+        ),
+    ];
+
+    assert_eq!(backup_keys_to_prune(backups, 2), vec!["backups/old.json"]);
+}
+
+#[test]
 fn sse_ready_payload_is_valid_event_stream() {
     let payload = sse_ready_payload(7).expect("ready payload");
 

@@ -4,6 +4,7 @@ import type { Memo } from "./MemoCard";
 import type { CurrentUser } from "../App";
 import { buildMemoListPath, type MemoPropertyFilter, type MemoState, type MemoVisibility } from "../memoQuery";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
+import { scheduleDebouncedRefresh } from "../sseRefresh";
 import { buildBulkMemoRequest, bulkMemoActionLabel, type BulkMemoAction } from "../bulkActions";
 import { shouldAutoLoadNextMemoPage } from "../memoListPaging";
 import { useFeedback } from "./Feedback";
@@ -48,6 +49,7 @@ export function MemoList({
   const [bulkVisibility, setBulkVisibility] = useState<MemoVisibility>("PRIVATE");
   const [bulkWorking, setBulkWorking] = useState(false);
   const longPressTimer = useRef<number | null>(null);
+  const sseRefreshTimer = useRef<number | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const { notify, confirm } = useFeedback();
 
@@ -126,7 +128,17 @@ export function MemoList({
     const refresh = (message: MessageEvent) => {
       try {
         const event = JSON.parse(message.data);
-        if (shouldRefreshForSseEvent(event)) fetchMemos();
+        if (shouldRefreshForSseEvent(event)) {
+          sseRefreshTimer.current = scheduleDebouncedRefresh(
+            sseRefreshTimer.current,
+            window.setTimeout,
+            window.clearTimeout,
+            () => {
+              sseRefreshTimer.current = null;
+              fetchMemos();
+            },
+          );
+        }
       } catch (err) {
         console.warn("[memo-list] malformed SSE payload:", err);
       }
@@ -134,7 +146,13 @@ export function MemoList({
     for (const type of ["memo.created", "memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.bulk.updated", "memo.comment.created"]) {
       source.addEventListener(type, refresh);
     }
-    return () => source.close();
+    return () => {
+      if (sseRefreshTimer.current !== null) {
+        window.clearTimeout(sseRefreshTimer.current);
+        sseRefreshTimer.current = null;
+      }
+      source.close();
+    };
   }, [currentUser, fetchMemos]);
 
   const handleMemoUpdate = useCallback((updated: Memo) => {
