@@ -61,6 +61,16 @@ npm run build
 `npm run build` 使用 `wrangler deploy --dry-run --outdir dist`，只验证打包，不会部署。
 当前 Rust Worker 构建关闭了 `wasm-opt`，避免本地或 CI 在无法访问 GitHub binaryen release 时失败。
 
+需要验证真实 HTTP 写链路时，可以先启动本地 Worker，再运行端到端冒烟脚本：
+
+```bash
+MEMOS_E2E_USERNAME=admin \
+MEMOS_E2E_PASSWORD=your-password \
+npm run test:e2e
+```
+
+脚本默认访问 `http://127.0.0.1:8787`，会创建临时 memo，覆盖评论、表情、引用关系、分享和批量操作，结束后自动清理。验证远端环境时设置 `MEMOS_E2E_BASE_URL`；如需保留测试数据，设置 `MEMOS_E2E_KEEP_DATA=1`。
+
 ## 生产部署
 
 1. 创建 D1 数据库并替换 `wrangler.toml` 中的 `database_id`。

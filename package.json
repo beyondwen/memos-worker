@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "node scripts/e2e-smoke.js",
     "dev": "wrangler dev --local",
     "build:web": "cd web && npm run build",
     "build": "npm run build:web && wrangler deploy --dry-run --outdir dist",
