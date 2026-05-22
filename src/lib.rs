@@ -337,7 +337,12 @@ async fn route(req: &mut Request, env: &Env) -> std::result::Result<Response, Ap
         return generate_rss(env, Some(username)).await;
     }
     if path.starts_with("/api/v1/shares/") && method == Method::Get {
-        return public_share(env, path.trim_start_matches("/api/v1/shares/")).await;
+        let rest = path.trim_start_matches("/api/v1/shares/");
+        if let Some((share_uid, attachment_rest)) = rest.split_once("/attachments/") {
+            let attachment_uid = attachment_rest.split('/').next().unwrap_or("");
+            return download_shared_attachment(env, share_uid, attachment_uid).await;
+        }
+        return public_share(env, rest).await;
     }
 
     if path.starts_with("/api/") || path.starts_with("/file/") {
@@ -727,7 +732,10 @@ async fn list_memos(env: &Env, url: &Url, viewer: &Viewer) -> std::result::Resul
         .await?;
     let memos: Vec<DbMemo> = rows.results()?;
     let has_more = memos.len() as i64 > limit;
-    let public: Vec<PublicMemo> = memos.into_iter().take(limit as usize).map(public_memo).collect();
+    let mut public = Vec::new();
+    for memo in memos.into_iter().take(limit as usize) {
+        public.push(memo_with_attachments(env, memo).await?);
+    }
     let next_page_token = if has_more { (offset + limit).to_string() } else { String::new() };
     json_response(json!({ "memos": public, "nextPageToken": next_page_token }), 200).map_err(AppError::from)
 }
@@ -747,7 +755,8 @@ async fn create_memo(req: &mut Request, env: &Env, viewer: &Viewer) -> std::resu
         .run()
         .await?;
     let memo = get_memo_by_uid(env, &uid).await?.ok_or_else(|| AppError::new(500, "Failed to create memo"))?;
-    json_response(json!({ "memo": public_memo(memo) }), 201).map_err(AppError::from)
+    let memo = memo_with_attachments(env, memo).await?;
+    json_response(json!({ "memo": memo }), 201).map_err(AppError::from)
 }
 
 async fn memo_subroute(req: &mut Request, env: &Env, viewer: &Viewer, raw: &str, method: Method, url: &Url) -> std::result::Result<Response, AppError> {
@@ -774,7 +783,8 @@ async fn memo_subroute(req: &mut Request, env: &Env, viewer: &Viewer, raw: &str,
             if !can_read(&memo, viewer) {
                 return Err(AppError::new(403, "Forbidden"));
             }
-            json_response(json!({ "memo": public_memo(memo) }), 200).map_err(AppError::from)
+            let memo = memo_with_attachments(env, memo).await?;
+            json_response(json!({ "memo": memo }), 200).map_err(AppError::from)
         }
         Method::Patch => update_memo(req, env, viewer, uid).await,
         Method::Delete => {
@@ -812,7 +822,8 @@ async fn update_memo(req: &mut Request, env: &Env, viewer: &Viewer, uid: &str) -
         .run()
         .await?;
     let updated = get_memo_by_uid(env, uid).await?.ok_or_else(|| AppError::new(500, "Memo disappeared"))?;
-    json_response(json!({ "memo": public_memo(updated) }), 200).map_err(AppError::from)
+    let updated = memo_with_attachments(env, updated).await?;
+    json_response(json!({ "memo": updated }), 200).map_err(AppError::from)
 }
 
 async fn bulk_memos(req: &mut Request, env: &Env, viewer: &Viewer) -> std::result::Result<Response, AppError> {
@@ -938,7 +949,33 @@ async fn public_share(env: &Env, uid: &str) -> std::result::Result<Response, App
         .first(None)
         .await?;
     let memo = row.ok_or_else(|| AppError::new(404, "Share not found"))?;
-    json_response(json!({ "memo": public_memo(memo) }), 200).map_err(AppError::from)
+    let mut memo = memo_with_attachments(env, memo).await?;
+    memo.attachments = memo.attachments.into_iter().map(|attachment| {
+        let attachment_uid = attachment.get("uid").and_then(Value::as_str).unwrap_or("").to_string();
+        let filename = attachment.get("filename").and_then(Value::as_str).unwrap_or("attachment").to_string();
+        let mut next = attachment;
+        if let Some(object) = next.as_object_mut() {
+            object.insert("url".to_string(), shared_attachment_url(uid, &attachment_uid, &filename).into());
+        }
+        next
+    }).collect();
+    json_response(json!({ "memo": memo }), 200).map_err(AppError::from)
+}
+
+async fn download_shared_attachment(env: &Env, share_uid: &str, attachment_uid: &str) -> std::result::Result<Response, AppError> {
+    let attachment: Option<DbAttachment> = db(env)?.prepare("SELECT attachment.*, memo.visibility AS memo_visibility, memo.creator_id AS memo_creator_id FROM attachment JOIN memo_share ON memo_share.memo_id = attachment.memo_id JOIN memo ON memo.id = memo_share.memo_id WHERE memo_share.uid = ? AND attachment.uid = ? AND memo.row_status = 'NORMAL' AND (memo_share.expires_ts IS NULL OR memo_share.expires_ts > ?)")
+        .bind(&[share_uid.into(), attachment_uid.into(), js_num(unix_now())])?
+        .first(None)
+        .await?;
+    let attachment = attachment.ok_or_else(|| AppError::new(404, "Attachment not found"))?;
+    let object = env.bucket("MEMOS_BUCKET")?.get(attachment.reference.clone()).execute().await?
+        .ok_or_else(|| AppError::new(404, "File not found"))?;
+    let body = object.body().ok_or_else(|| AppError::new(404, "File not found"))?.response_body()?;
+    let mut response = ResponseBuilder::new().body(body);
+    response.headers_mut().set("Content-Type", if attachment.file_type.is_empty() { "application/octet-stream" } else { &attachment.file_type })?;
+    response.headers_mut().set("Content-Disposition", &format!("inline; filename=\"{}\"", attachment.filename))?;
+    response.headers_mut().set("Cache-Control", "public, max-age=3600")?;
+    Ok(response)
 }
 
 async fn generate_rss(env: &Env, username: Option<&str>) -> std::result::Result<Response, AppError> {
@@ -2236,7 +2273,8 @@ async fn create_comment(req: &mut Request, env: &Env, viewer: &Viewer, parent_ui
         .bind(&[js_num(parent.id), js_num(comment.id)])?
         .run()
         .await?;
-    json_response(json!({ "memo": public_memo(comment) }), 201).map_err(AppError::from)
+    let comment = memo_with_attachments(env, comment).await?;
+    json_response(json!({ "memo": comment }), 201).map_err(AppError::from)
 }
 
 async fn list_reactions(env: &Env, viewer: &Viewer, uid: &str) -> std::result::Result<Response, AppError> {
@@ -2699,6 +2737,10 @@ fn public_user(user: DbUser) -> PublicUser {
 }
 
 fn public_memo(memo: DbMemo) -> PublicMemo {
+    public_memo_with_attachments(memo, vec![])
+}
+
+fn public_memo_with_attachments(memo: DbMemo, attachments: Vec<Value>) -> PublicMemo {
     PublicMemo {
         name: format!("memos/{}", memo.uid),
         id: memo.id,
@@ -2715,8 +2757,26 @@ fn public_memo(memo: DbMemo) -> PublicMemo {
         visibility: memo.visibility,
         pinned: memo.pinned != 0,
         payload: serde_json::from_str(&memo.payload).unwrap_or_else(|_| json!({})),
-        attachments: vec![],
+        attachments,
     }
+}
+
+async fn memo_with_attachments(env: &Env, memo: DbMemo) -> std::result::Result<PublicMemo, AppError> {
+    let attachments = list_attachments_for_memo(env, memo.id).await?;
+    Ok(public_memo_with_attachments(memo, attachments))
+}
+
+async fn list_attachments_for_memo(env: &Env, memo_id: i64) -> std::result::Result<Vec<Value>, AppError> {
+    let rows = db(env)?.prepare("SELECT attachment.*, memo.visibility AS memo_visibility, memo.creator_id AS memo_creator_id FROM attachment LEFT JOIN memo ON memo.id = attachment.memo_id WHERE attachment.memo_id = ? ORDER BY attachment.created_ts, attachment.id")
+        .bind(&[js_num(memo_id)])?
+        .all()
+        .await?;
+    let attachments: Vec<DbAttachment> = rows.results()?;
+    Ok(attachments.into_iter().map(public_attachment).collect())
+}
+
+fn shared_attachment_url(share_uid: &str, attachment_uid: &str, filename: &str) -> String {
+    format!("/api/v1/shares/{}/attachments/{}/{}", share_uid, attachment_uid, filename)
 }
 
 fn can_read(memo: &DbMemo, viewer: &Viewer) -> bool {
@@ -2915,6 +2975,40 @@ mod tests {
             attachment_storage_key(7, "a_123", "note.txt"),
             "attachments/7/a_123/note.txt"
         );
+    }
+
+    #[test]
+    fn public_memo_with_attachments_preserves_attachment_payload() {
+        let memo = sample_memo();
+        let attachments = vec![json!({ "uid": "a_1", "filename": "note.txt" })];
+        let public = public_memo_with_attachments(memo, attachments.clone());
+
+        assert_eq!(public.attachments, attachments);
+    }
+
+    #[test]
+    fn shared_attachment_url_uses_share_and_attachment_identity() {
+        assert_eq!(
+            shared_attachment_url("s_1", "a_1", "note.txt"),
+            "/api/v1/shares/s_1/attachments/a_1/note.txt"
+        );
+    }
+
+    fn sample_memo() -> DbMemo {
+        DbMemo {
+            id: 1,
+            uid: "m_1".to_string(),
+            creator_id: 7,
+            creator_username: "alice".to_string(),
+            creator_nickname: "Alice".to_string(),
+            created_ts: 10,
+            updated_ts: 11,
+            row_status: "NORMAL".to_string(),
+            content: "hello".to_string(),
+            visibility: "PRIVATE".to_string(),
+            pinned: 0,
+            payload: "{}".to_string(),
+        }
     }
 }
 
