@@ -1,8 +1,7 @@
-import type { CurrentUser } from "../App";
 import { AttachmentList } from "../components/AttachmentList";
 import { MarkdownContent } from "../components/MarkdownContent";
-import { ReactionList, ReactionPicker, ShareUrlBox } from "../components/MemoCardSections";
-import type { Memo, Reaction } from "../components/MemoCard";
+import type { CurrentUser } from "../App";
+import type { Memo } from "../components/MemoCard";
 
 export function formatDetailDate(ts: number) {
   const d = new Date(ts * 1000);
@@ -68,32 +67,10 @@ export function DetailToolbar({
 
 interface DetailMemoCardProps {
   memo: Memo;
-  currentUser: CurrentUser | null;
-  reactions: Reaction[];
-  showReactionPicker: boolean;
-  emojiOptions: string[];
-  showShare: boolean;
-  shareUrl: string;
-  onRemoveReaction: (reactionId: number) => void;
-  onAddReaction: (reactionType: string) => void;
-  onToggleReactionPicker: () => void;
-  onShare: () => void;
-  onCopyShare: () => void;
 }
 
 export function DetailMemoCard({
   memo,
-  currentUser,
-  reactions,
-  showReactionPicker,
-  emojiOptions,
-  showShare,
-  shareUrl,
-  onRemoveReaction,
-  onAddReaction,
-  onToggleReactionPicker,
-  onShare,
-  onCopyShare,
 }: DetailMemoCardProps) {
   return (
     <div class="memo-card">
@@ -109,31 +86,6 @@ export function DetailMemoCard({
 
       <MarkdownContent content={memo.content} />
       <AttachmentList attachments={memo.attachments} />
-
-      <ReactionList
-        reactions={reactions}
-        currentUser={currentUser}
-        onRemove={onRemoveReaction}
-      />
-
-      {showReactionPicker && (
-        <div class="reaction-picker">
-          <ReactionPicker options={emojiOptions} onAdd={onAddReaction} />
-        </div>
-      )}
-
-      {showShare && shareUrl && (
-        <ShareUrlBox shareUrl={shareUrl} onCopy={onCopyShare} />
-      )}
-
-      <div class="memo-actions">
-        <button onClick={onToggleReactionPicker}>
-          表态
-        </button>
-        <button onClick={onShare}>
-          分享
-        </button>
-      </div>
     </div>
   );
 }

@@ -7,8 +7,6 @@ import { AuthPage } from "./pages/AuthPage";
 import { MemoDetailPage } from "./pages/MemoDetailPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ExplorePage } from "./pages/ExplorePage";
-import { SharePage } from "./pages/SharePage";
-import { InboxPage } from "./pages/InboxPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { FeedbackProvider, useFeedback } from "./components/Feedback";
 import { buildAuthRedirectPath, currentRoutePath } from "./authFlow";
@@ -98,10 +96,8 @@ function AppContent() {
         />
         <MemoDetailPage path="/memos/:uid" currentUser={currentUser} />
         <ExplorePage path="/explore" currentUser={currentUser} />
-        <InboxPage path="/inbox" currentUser={currentUser} />
         <TimelinePage path="/timeline" currentUser={currentUser} />
         <SettingsPage path="/settings" currentUser={currentUser} />
-        <SharePage path="/shares/:uid" />
       </Router>
     </>
   );

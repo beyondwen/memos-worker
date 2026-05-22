@@ -37,16 +37,5 @@ pub(crate) async fn public_route(
             .trim_end_matches('/');
         return generate_rss(env, Some(username)).await.map(Some);
     }
-    if path.starts_with("/api/v1/shares/") && matches!(method, &Method::Get) {
-        let rest = path.trim_start_matches("/api/v1/shares/");
-        if let Some((share_uid, attachment_rest)) = rest.split_once("/attachments/") {
-            let attachment_uid = attachment_rest.split('/').next().unwrap_or("");
-            return download_shared_attachment(env, share_uid, attachment_uid)
-                .await
-                .map(Some);
-        }
-        return public_share(env, rest).await.map(Some);
-    }
-
     Ok(None)
 }

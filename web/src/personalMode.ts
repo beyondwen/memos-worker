@@ -1,27 +1,17 @@
 export interface PersonalModeFeatures {
   publicDiscovery: boolean;
-  inbox: boolean;
-  integrations: boolean;
-  socialActions: boolean;
-  publicSharing: boolean;
   rss: boolean;
-  accessTokens: boolean;
   audit: boolean;
 }
 
 export const PERSONAL_MODE_FEATURES: PersonalModeFeatures = {
   publicDiscovery: false,
-  inbox: false,
-  integrations: false,
-  socialActions: false,
-  publicSharing: false,
   rss: false,
-  accessTokens: false,
   audit: false,
 };
 
 export interface PrimaryNavItem {
-  id: "home" | "explore" | "timeline" | "inbox" | "settings";
+  id: "home" | "explore" | "timeline" | "settings";
   href: string;
   label: string;
 }
@@ -41,9 +31,6 @@ export function personalPrimaryNavItems(
   }
   if (authenticated) {
     items.push({ id: "timeline", href: "/timeline", label: "时间线" });
-    if (features.inbox) {
-      items.push({ id: "inbox", href: "/inbox", label: "通知" });
-    }
     items.push({ id: "settings", href: "/settings", label: "设置" });
   }
   return items;
@@ -56,7 +43,6 @@ export function personalSettingsTabs<T extends SettingsTabLike>(
 ): T[] {
   return tabs.filter((tab) => {
     if (tab.adminOnly && role !== "ADMIN") return false;
-    if (tab.id === "integrations") return features.integrations;
     if (tab.id === "audit") return features.audit;
     return true;
   });

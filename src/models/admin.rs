@@ -44,14 +44,3 @@ pub(crate) struct DbAuditLog {
     pub(crate) target: String,
     pub(crate) detail: String,
 }
-
-#[derive(Debug, Deserialize, Clone)]
-pub(crate) struct DbInboxRow {
-    pub(crate) id: i64,
-    pub(crate) created_ts: i64,
-    pub(crate) sender_id: Option<i64>,
-    pub(crate) status: String,
-    pub(crate) message: String,
-    pub(crate) sender_username: Option<String>,
-    pub(crate) sender_nickname: Option<String>,
-}

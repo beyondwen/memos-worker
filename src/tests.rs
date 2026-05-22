@@ -48,14 +48,6 @@ fn public_memo_with_attachments_preserves_attachment_payload() {
 }
 
 #[test]
-fn shared_attachment_url_uses_share_and_attachment_identity() {
-    assert_eq!(
-        shared_attachment_url("s_1", "a_1", "note.txt"),
-        "/api/v1/shares/s_1/attachments/a_1/note.txt"
-    );
-}
-
-#[test]
 fn sse_ready_payload_is_valid_event_stream() {
     let payload = sse_ready_payload(7).expect("ready payload");
 
@@ -163,33 +155,6 @@ fn memo_webhook_body_wraps_event_timestamp_and_public_memo() {
 }
 
 #[test]
-fn share_payload_includes_database_id_for_delete_route() {
-    assert_eq!(
-        share_payload(9, "s_1", "m_1", 1779345600, Some(1779349200)),
-        json!({
-            "id": 9,
-            "uid": "s_1",
-            "memoUid": "m_1",
-            "createdTs": 1779345600,
-            "expiresTs": 1779349200,
-            "url": "/api/v1/shares/s_1"
-        })
-    );
-}
-
-#[test]
-fn comment_inbox_message_points_to_parent_and_comment() {
-    assert_eq!(
-        comment_inbox_message("m_parent", "m_comment"),
-        json!({
-            "type": "memo.comment.created",
-            "memoUid": "m_parent",
-            "commentUid": "m_comment"
-        })
-    );
-}
-
-#[test]
 fn memo_event_retention_cutoff_uses_whole_days() {
     assert_eq!(memo_event_retention_cutoff(1_000_000, 7), 395_200);
     assert_eq!(memo_event_retention_cutoff(1_000_000, -1), 1_000_000);
@@ -218,15 +183,6 @@ fn parse_user_settings_path_splits_identifier_and_key() {
 }
 
 #[test]
-fn safe_inbox_message_parse_falls_back_to_unknown() {
-    assert_eq!(
-        safe_inbox_message("{\"type\":\"memo.comment.created\",\"memoUid\":\"m_1\"}")["type"],
-        "memo.comment.created"
-    );
-    assert_eq!(safe_inbox_message("not json"), json!({ "type": "unknown" }));
-}
-
-#[test]
 fn memo_child_routes_classify_unknown_paths_as_unsupported() {
     assert_eq!(
         memo_child_route(&["m_1", "relations", "suggest"], &Method::Post),
@@ -238,6 +194,14 @@ fn memo_child_routes_classify_unknown_paths_as_unsupported() {
     );
     assert_eq!(
         memo_child_route(&["m_1", "unknown"], &Method::Get),
+        MemoChildRoute::Unsupported
+    );
+    assert_eq!(
+        memo_child_route(&["m_1", "reactions"], &Method::Get),
+        MemoChildRoute::Unsupported
+    );
+    assert_eq!(
+        memo_child_route(&["m_1", "shares"], &Method::Post),
         MemoChildRoute::Unsupported
     );
 }
@@ -312,7 +276,11 @@ fn requested_relation_uids_normalizes_deduplicates_and_skips_self() {
 
     assert_eq!(
         requested_relation_uids(&body, "m_current"),
-        vec!["m_related".to_string(), "m_hash".to_string(), "m_other".to_string()]
+        vec![
+            "m_related".to_string(),
+            "m_hash".to_string(),
+            "m_other".to_string()
+        ]
     );
 }
 

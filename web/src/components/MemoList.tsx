@@ -5,6 +5,7 @@ import type { CurrentUser } from "../App";
 import { buildMemoListPath, type MemoPropertyFilter, type MemoState, type MemoVisibility } from "../memoQuery";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 import { buildBulkMemoRequest, bulkMemoActionLabel, type BulkMemoAction } from "../bulkActions";
+import { shouldAutoLoadNextMemoPage } from "../memoListPaging";
 import { useFeedback } from "./Feedback";
 import { scoreSearchMatch } from "../searchResultView";
 import { BulkBar, EmptyMemoList, MemoListItemView, MemoListLoading } from "./MemoListSections";
@@ -47,6 +48,7 @@ export function MemoList({
   const [bulkVisibility, setBulkVisibility] = useState<MemoVisibility>("PRIVATE");
   const [bulkWorking, setBulkWorking] = useState(false);
   const longPressTimer = useRef<number | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const { notify, confirm } = useFeedback();
 
   const buildUrl = useCallback(
@@ -92,6 +94,23 @@ export function MemoList({
     fetchMemos();
   }, [fetchMemos, refreshKey]);
 
+  const loadNextPage = useCallback(() => {
+    if (!shouldAutoLoadNextMemoPage({ hasMore, loading, nextPageToken })) return;
+    fetchMemos(nextPageToken);
+  }, [fetchMemos, hasMore, loading, nextPageToken]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasMore) return;
+
+    if (!("IntersectionObserver" in window)) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadNextPage();
+    }, { rootMargin: "280px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, loadNextPage]);
+
   useEffect(() => {
     setSelectedUids((prev) => {
       const visible = new Set(memos.map((memo) => memo.uid));
@@ -112,7 +131,7 @@ export function MemoList({
         console.warn("[memo-list] malformed SSE payload:", err);
       }
     };
-    for (const type of ["memo.created", "memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.bulk.updated", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {
+    for (const type of ["memo.created", "memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.bulk.updated", "memo.comment.created"]) {
       source.addEventListener(type, refresh);
     }
     return () => source.close();
@@ -250,10 +269,13 @@ export function MemoList({
       ))}
 
       {hasMore && (
-        <div class="load-more">
+        <div class="load-more" ref={loadMoreRef}>
+          <div class="load-more-hint" aria-live="polite">
+            {loading ? "正在加载更多..." : "继续向下滚动会自动加载"}
+          </div>
           <button
             class="btn btn-secondary"
-            onClick={() => fetchMemos(nextPageToken)}
+            onClick={loadNextPage}
             disabled={loading}
           >
             {loading ? "加载中..." : "加载更多"}

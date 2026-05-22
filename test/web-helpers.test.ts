@@ -11,11 +11,7 @@ import {
 import { attachmentDisplayMeta } from "../web/src/attachmentView";
 import { shouldRefreshForSseEvent } from "../web/src/sseEvents";
 import { buildAuthRedirectPath } from "../web/src/authFlow";
-import { formatInboxItem } from "../web/src/inboxView";
-import { buildShareUrl, normalizeWebhookForm } from "../web/src/integrationHelpers";
 import { buildBulkMemoRequest, bulkMemoActionLabel } from "../web/src/bulkActions";
-import { MEMO_WEBHOOK_EVENTS } from "../web/src/webhookEvents";
-import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../web/src/webhookDeliveryView";
 import { buildApiUrl } from "../web/src/api";
 import { highlightRenderedHtml } from "../web/src/searchHighlight";
 import { applyMemoTemplate, MEMO_TEMPLATES } from "../web/src/memoTemplates";
@@ -24,6 +20,7 @@ import { attachmentCleanupSummary } from "../web/src/attachmentCleanupView";
 import { buildHomeDateFilterPath, parseHomeDateFilterParams, stripHomeFilterParams } from "../web/src/homeFilters";
 import { shouldOpenMemoDetailFromCardClick } from "../web/src/cardClick";
 import { isHeaderNavActive } from "../web/src/headerNav";
+import { shouldAutoLoadNextMemoPage } from "../web/src/memoListPaging";
 import { personalPrimaryNavItems, personalSettingsTabs } from "../web/src/personalMode";
 import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
 import { SETTINGS_TABS } from "../web/src/pages/settingsModel";
@@ -72,6 +69,28 @@ describe("memo list query builder", () => {
     const url = new URL(path, "https://example.test");
     expect(url.searchParams.has("filter")).toBe(false);
     expect(url.searchParams.get("page_size")).toBe("20");
+  });
+});
+
+describe("memo list paging", () => {
+  it("auto-loads only when another page is available and no request is running", () => {
+    expect(shouldAutoLoadNextMemoPage({
+      hasMore: true,
+      loading: false,
+      nextPageToken: "cursor-1",
+    })).toBe(true);
+
+    expect(shouldAutoLoadNextMemoPage({
+      hasMore: true,
+      loading: true,
+      nextPageToken: "cursor-1",
+    })).toBe(false);
+
+    expect(shouldAutoLoadNextMemoPage({
+      hasMore: true,
+      loading: false,
+      nextPageToken: "",
+    })).toBe(false);
   });
 });
 
@@ -262,9 +281,13 @@ describe("SSE refresh policy", () => {
     expect(shouldRefreshForSseEvent({ type: "memo.restored", name: "memos/a" })).toBe(true);
     expect(shouldRefreshForSseEvent({ type: "memo.bulk.updated", name: "memos/a" })).toBe(true);
     expect(shouldRefreshForSseEvent({ type: "memo.comment.created", name: "memos/a" })).toBe(true);
-    expect(shouldRefreshForSseEvent({ type: "reaction.upserted", name: "memos/a" })).toBe(true);
-    expect(shouldRefreshForSseEvent({ type: "share.created", name: "memos/a" })).toBe(true);
-    expect(shouldRefreshForSseEvent({ type: "share.deleted", name: "memos/a" })).toBe(true);
+  });
+
+  it("does not refresh personal lists for removed social/share events", () => {
+    expect(shouldRefreshForSseEvent({ type: "reaction.upserted", name: "memos/a" })).toBe(false);
+    expect(shouldRefreshForSseEvent({ type: "reaction.deleted", name: "memos/a" })).toBe(false);
+    expect(shouldRefreshForSseEvent({ type: "share.created", name: "memos/a" })).toBe(false);
+    expect(shouldRefreshForSseEvent({ type: "share.deleted", name: "memos/a" })).toBe(false);
   });
 
   it("ignores malformed events", () => {
@@ -354,7 +377,7 @@ describe("personal mode feature trim", () => {
     ]);
   });
 
-  it("hides integration and audit settings tabs by default", () => {
+  it("keeps only account, data and maintenance settings tabs by default", () => {
     expect(personalSettingsTabs(SETTINGS_TABS, "ADMIN").map((tab) => tab.id)).toEqual([
       "account",
       "data",
@@ -363,92 +386,15 @@ describe("personal mode feature trim", () => {
   });
 });
 
-describe("webhook event catalog", () => {
-  it("includes memo lifecycle, social and share events", () => {
-    expect(MEMO_WEBHOOK_EVENTS).toEqual(expect.arrayContaining([
-      "memo.created",
-      "memo.updated",
-      "memo.archived",
-      "memo.restored",
-      "memo.deleted",
-      "memo.bulk.updated",
-      "memo.comment.created",
-      "reaction.upserted",
-      "reaction.deleted",
-      "share.created",
-      "share.deleted",
-    ]));
-  });
-});
-
-describe("webhook delivery view helpers", () => {
-  it("labels successful deliveries with HTTP status", () => {
-    expect(webhookDeliveryStatusMeta({ status: "SUCCESS", statusCode: 204 })).toEqual({
-      label: "成功 204",
-      className: "success",
-      canRetry: false,
-    });
-  });
-
-  it("labels failed deliveries as retryable", () => {
-    expect(webhookDeliveryStatusMeta({ status: "FAILED", statusCode: null })).toEqual({
-      label: "失败",
-      className: "failed",
-      canRetry: true,
-    });
-  });
-
-  it("formats delivery time from unix seconds", () => {
-    expect(webhookDeliveryTimeLabel(1779345600)).toContain("2026");
-  });
-});
-
 describe("auth flow helpers", () => {
   it("builds a login redirect path with the original route", () => {
-    expect(buildAuthRedirectPath("/settings?tab=integrations")).toBe(
-      "/auth?redirect=%2Fsettings%3Ftab%3Dintegrations"
+    expect(buildAuthRedirectPath("/settings?tab=data")).toBe(
+      "/auth?redirect=%2Fsettings%3Ftab%3Ddata"
     );
   });
 
   it("does not redirect back to the auth page", () => {
     expect(buildAuthRedirectPath("/auth")).toBe("/auth");
-  });
-});
-
-describe("inbox view helpers", () => {
-  it("formats comment notifications with sender and target", () => {
-    expect(formatInboxItem({
-      id: 1,
-      createdTs: 100,
-      status: "UNREAD",
-      sender: { id: 2, username: "alice", nickname: "Alice" },
-      message: { type: "memo.comment.created", memoUid: "m1", commentUid: "c1" },
-    })).toEqual({
-      title: "Alice 评论了你的备忘录",
-      detail: "打开备忘录查看回复",
-      memoPath: "/memos/m1",
-    });
-  });
-});
-
-describe("integration helpers", () => {
-  it("builds public share URLs with hash routing", () => {
-    expect(buildShareUrl("https://example.test", "s123")).toBe("https://example.test/#/shares/s123");
-  });
-
-  it("normalizes webhook form data", () => {
-    expect(normalizeWebhookForm("  CI  ", " https://example.test/hook ")).toEqual({
-      ok: true,
-      name: "CI",
-      url: "https://example.test/hook",
-    });
-  });
-
-  it("rejects invalid webhook URLs", () => {
-    expect(normalizeWebhookForm("CI", "not-url")).toEqual({
-      ok: false,
-      error: "请输入有效的 Webhook URL",
-    });
   });
 });
 

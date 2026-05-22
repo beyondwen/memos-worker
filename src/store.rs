@@ -91,22 +91,6 @@ pub(crate) async fn purge_ids(env: &Env, ids: &[i64]) -> std::result::Result<(),
         .bind(&bind_with_first(unix_now(), ids))?
         .run()
         .await?;
-    db(env)?
-        .prepare(format!(
-            "DELETE FROM reaction WHERE content_type = 'MEMO' AND content_id IN ({})",
-            placeholders
-        ))
-        .bind(&values)?
-        .run()
-        .await?;
-    db(env)?
-        .prepare(format!(
-            "DELETE FROM memo_share WHERE memo_id IN ({})",
-            placeholders
-        ))
-        .bind(&values)?
-        .run()
-        .await?;
     let mut relation_values = values.clone();
     relation_values.extend(values.clone());
     db(env)?
@@ -180,17 +164,6 @@ pub(crate) async fn list_attachments_for_memo(
         .await?;
     let attachments: Vec<DbAttachment> = rows.results()?;
     Ok(attachments.into_iter().map(public_attachment).collect())
-}
-
-pub(crate) fn shared_attachment_url(
-    share_uid: &str,
-    attachment_uid: &str,
-    filename: &str,
-) -> String {
-    format!(
-        "/api/v1/shares/{}/attachments/{}/{}",
-        share_uid, attachment_uid, filename
-    )
 }
 
 pub(crate) fn can_read(memo: &DbMemo, viewer: &Viewer) -> bool {

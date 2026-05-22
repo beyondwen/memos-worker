@@ -2,12 +2,10 @@ import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
 import { api, getToken } from "../api";
 import { useFeedback } from "../components/Feedback";
-import { ShareManager } from "../components/ShareManager";
 import { RelationPanel } from "../components/RelationPanel";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
-import { buildShareUrl } from "../integrationHelpers";
 import type { CurrentUser } from "../App";
-import type { Memo, Reaction } from "../components/MemoCard";
+import type { Memo } from "../components/MemoCard";
 import {
   DetailCommentsSection,
   DetailMemoCard,
@@ -20,8 +18,6 @@ interface MemoDetailPageProps {
   currentUser: CurrentUser | null;
 }
 
-const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
-
 export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
   const { notify, confirm } = useFeedback();
   const [memo, setMemo] = useState<Memo | null>(null);
@@ -30,10 +26,6 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
   const [comments, setComments] = useState<Memo[]>([]);
   const [commentContent, setCommentContent] = useState("");
   const [commenting, setCommenting] = useState(false);
-  const [reactions, setReactions] = useState<Reaction[]>([]);
-  const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const [shareUrl, setShareUrl] = useState("");
-  const [showShare, setShowShare] = useState(false);
 
   const fetchMemo = useCallback(async () => {
     if (!uid) return;
@@ -61,23 +53,10 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
     }
   }, [uid]);
 
-  const fetchReactions = useCallback(async () => {
-    if (!uid) return;
-    try {
-      const data = await api<{ reactions: Reaction[] }>(
-        `/api/v1/memos/${uid}/reactions`
-      );
-      setReactions(data.reactions);
-    } catch (err) {
-      notify(`加载表态失败：${(err as Error).message}`, "error");
-    }
-  }, [uid]);
-
   useEffect(() => {
     fetchMemo();
     fetchComments();
-    fetchReactions();
-  }, [fetchMemo, fetchComments, fetchReactions]);
+  }, [fetchMemo, fetchComments]);
 
   useEffect(() => {
     if (!currentUser || !uid) return;
@@ -89,16 +68,16 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
         if (!shouldRefreshForSseEvent(event) || event.name !== `memos/${uid}`) return;
         fetchMemo();
         fetchComments();
-        fetchReactions();
       } catch (err) {
         console.warn("[memo-detail] malformed SSE payload:", err);
       }
     };
-    for (const type of ["memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.comment.created", "reaction.upserted", "reaction.deleted"]) {
+    const events = ["memo.updated", "memo.archived", "memo.restored", "memo.deleted", "memo.comment.created"];
+    for (const type of events) {
       source.addEventListener(type, refresh);
     }
     return () => source.close();
-  }, [currentUser, fetchComments, fetchMemo, fetchReactions, uid]);
+  }, [currentUser, fetchComments, fetchMemo, uid]);
 
   const handleArchive = async () => {
     if (!memo) return;
@@ -173,54 +152,6 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
     }
   };
 
-  const addReaction = async (reactionType: string) => {
-    if (!uid) return;
-    setShowReactionPicker(false);
-    try {
-      const data = await api<{ reactions: Reaction[] }>(
-        `/api/v1/memos/${uid}/reactions`,
-        {
-          method: "POST",
-          body: JSON.stringify({ reactionType }),
-        }
-      );
-      setReactions(data.reactions);
-    } catch (err) {
-      notify(`表态失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const removeReaction = async (reactionId: number) => {
-    if (!uid) return;
-    try {
-      const data = await api<{ reactions: Reaction[] }>(
-        `/api/v1/memos/${uid}/reactions/${reactionId}`,
-        { method: "DELETE" }
-      );
-      setReactions(data.reactions);
-    } catch (err) {
-      notify(`取消表态失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const handleShare = async () => {
-    if (!uid) return;
-    if (showShare) {
-      setShowShare(false);
-      return;
-    }
-    try {
-      const data = await api<{ share: { uid: string } }>(
-        `/api/v1/memos/${uid}/shares`,
-        { method: "POST", body: JSON.stringify({}) }
-      );
-      setShareUrl(buildShareUrl(window.location.origin, data.share.uid));
-      setShowShare(true);
-    } catch (err) {
-      notify(`分享失败：${(err as Error).message}`, "error");
-    }
-  };
-
   if (loading) {
     return (
       <div class="loading-screen">
@@ -265,25 +196,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
 
       <DetailMemoCard
         memo={memo}
-        currentUser={currentUser}
-        reactions={reactions}
-        showReactionPicker={showReactionPicker}
-        emojiOptions={EMOJI_OPTIONS}
-        showShare={showShare}
-        shareUrl={shareUrl}
-        onRemoveReaction={removeReaction}
-        onAddReaction={addReaction}
-        onToggleReactionPicker={() => setShowReactionPicker(!showReactionPicker)}
-        onShare={handleShare}
-        onCopyShare={() => {
-          navigator.clipboard.writeText(shareUrl);
-          notify("分享链接已复制", "success");
-        }}
       />
-
-      {currentUser?.id === memo.creator.id && (
-        <ShareManager memoUid={memo.uid} />
-      )}
 
       <RelationPanel memoUid={memo.uid} canEdit={currentUser?.id === memo.creator.id} />
 

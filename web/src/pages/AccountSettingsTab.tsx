@@ -1,6 +1,6 @@
 import type { CurrentUser } from "../App";
 import { PERSONAL_MODE_FEATURES } from "../personalMode";
-import type { NewPat, Pat, UserStats } from "./settingsModel";
+import type { UserStats } from "./settingsModel";
 
 interface AccountSettingsTabProps {
   currentUser: CurrentUser;
@@ -17,29 +17,15 @@ interface AccountSettingsTabProps {
   pwSaving: boolean;
   pwMsg: string;
   pwError: string;
-  pats: Pat[];
-  newPatName: string;
-  newPatResult: NewPat | null;
-  patCreating: boolean;
   onNicknameChange: (value: string) => void;
   onEmailChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
   onAvatarUrlChange: (value: string) => void;
   onCurrentPasswordChange: (value: string) => void;
   onNewPasswordChange: (value: string) => void;
-  onNewPatNameChange: (value: string) => void;
   onProfileSave: (event: Event) => void;
   onPasswordChange: (event: Event) => void;
-  onCreatePat: (event: Event) => void;
-  onDeletePat: (id: number) => void;
 }
-
-const formatSettingsDate = (ts: number) =>
-  new Date(ts * 1000).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 
 export function AccountSettingsTab({
   currentUser,
@@ -56,21 +42,14 @@ export function AccountSettingsTab({
   pwSaving,
   pwMsg,
   pwError,
-  pats,
-  newPatName,
-  newPatResult,
-  patCreating,
   onNicknameChange,
   onEmailChange,
   onDescriptionChange,
   onAvatarUrlChange,
   onCurrentPasswordChange,
   onNewPasswordChange,
-  onNewPatNameChange,
   onProfileSave,
   onPasswordChange,
-  onCreatePat,
-  onDeletePat,
 }: AccountSettingsTabProps) {
   return (
     <>
@@ -188,61 +167,6 @@ export function AccountSettingsTab({
           </button>
         </form>
       </div>
-
-      {PERSONAL_MODE_FEATURES.accessTokens && (
-      <div class="settings-section">
-        <h2>个人访问令牌</h2>
-
-        <div class="settings-record-list">
-          {pats.map((pat) => (
-            <div key={pat.id} class="settings-record-row">
-              <div class="settings-record-main">
-                <span class="settings-record-title">{pat.name}</span>
-                <span class="settings-record-meta">
-                  {pat.prefix}... · {pat.expiresTs ? `过期时间 ${formatSettingsDate(pat.expiresTs)}` : "无过期时间"}
-                </span>
-              </div>
-              <button
-                class="btn btn-danger-soft btn-sm"
-                onClick={() => onDeletePat(pat.id)}
-              >
-                删除
-              </button>
-            </div>
-          ))}
-          {pats.length === 0 && (
-            <div class="muted-line">
-              暂未创建令牌。
-            </div>
-          )}
-        </div>
-
-        <form onSubmit={onCreatePat} class="inline-form">
-          <div class="form-group">
-            <input
-              class="form-input"
-              type="text"
-              placeholder="令牌名称"
-              aria-label="令牌名称"
-              value={newPatName}
-              onInput={(e) => onNewPatNameChange((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <button class="btn btn-primary btn-sm" type="submit" disabled={patCreating}>
-            {patCreating ? "创建中..." : "创建令牌"}
-          </button>
-        </form>
-
-        {newPatResult && (
-          <div class="pat-token-box">
-            <div class="pat-token-title">
-              令牌已创建！请立即复制，之后将不再显示。
-            </div>
-            <code>{newPatResult.token}</code>
-          </div>
-        )}
-      </div>
-      )}
     </>
   );
 }

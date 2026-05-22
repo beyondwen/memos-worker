@@ -75,36 +75,12 @@ pub(crate) struct RankedRelationCandidate {
     pub(crate) tags: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub(crate) struct DbReaction {
-    pub(crate) id: i64,
-    pub(crate) created_ts: i64,
-    pub(crate) reaction_type: String,
-    pub(crate) creator_id: i64,
-    pub(crate) creator_username: String,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub(crate) struct DbShare {
-    pub(crate) id: i64,
-    pub(crate) uid: String,
-    pub(crate) creator_id: i64,
-    pub(crate) created_ts: i64,
-    pub(crate) expires_ts: Option<i64>,
-}
-
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum MemoChildRoute<'a> {
+pub(crate) enum MemoChildRoute {
     ListComments,
     CreateComment,
-    ListReactions,
-    UpsertReaction,
-    DeleteReaction(&'a str),
     GetRelations,
     SuggestRelations,
     SetRelations,
-    ListShares,
-    CreateShare,
-    DeleteShare(&'a str),
     Unsupported,
 }

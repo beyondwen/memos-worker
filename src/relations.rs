@@ -47,9 +47,9 @@ pub(crate) async fn set_relations(
     let requested_uids = requested_relation_uids(&body, uid);
     let mut related_ids = Vec::with_capacity(requested_uids.len());
     for related_uid in requested_uids {
-        let related = get_memo_by_uid(env, &related_uid)
-            .await?
-            .ok_or_else(|| AppError::new(400, format!("Related memo not found: {}", related_uid)))?;
+        let related = get_memo_by_uid(env, &related_uid).await?.ok_or_else(|| {
+            AppError::new(400, format!("Related memo not found: {}", related_uid))
+        })?;
         if !can_read(&related, viewer) {
             return Err(AppError::new(403, "Forbidden related memo"));
         }
@@ -115,13 +115,19 @@ pub(crate) async fn suggest_memo_relations(
         .collect();
     let settings = resolve_ai_settings(env).await?;
     let (suggestions, source) = if settings.api_key.trim().is_empty() {
-        (local_relation_suggestions(&ranked), RelationSuggestionSource::Local)
+        (
+            local_relation_suggestions(&ranked),
+            RelationSuggestionSource::Local,
+        )
     } else {
         match request_ai_relation_suggestions(&settings, &memo, &ranked, &candidate_content).await {
             Ok(ai_suggestions) if !ai_suggestions.is_empty() => {
                 (ai_suggestions, RelationSuggestionSource::Ai)
             }
-            Ok(_) => (local_relation_suggestions(&ranked), RelationSuggestionSource::Local),
+            Ok(_) => (
+                local_relation_suggestions(&ranked),
+                RelationSuggestionSource::Local,
+            ),
             Err(err) => (
                 local_relation_suggestions(&ranked),
                 RelationSuggestionSource::LocalFallback {
@@ -181,9 +187,7 @@ pub(crate) fn requested_relation_uids(body: &Value, current_uid: &str) -> Vec<St
 
 fn relation_uid_from_ref(value: &str) -> String {
     let trimmed = value.trim();
-    let uid_start = trimmed
-        .find("/memos/")
-        .map(|index| index + "/memos/".len());
+    let uid_start = trimmed.find("/memos/").map(|index| index + "/memos/".len());
     let raw_uid = match uid_start {
         Some(index) => &trimmed[index..],
         None => trimmed.strip_prefix("memos/").unwrap_or(trimmed),

@@ -1,21 +1,13 @@
-import { useState, useCallback } from "preact/hooks";
+import { useState } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
 import { MarkdownContent } from "./MarkdownContent";
 import { useFeedback } from "./Feedback";
 import { AttachmentList } from "./AttachmentList";
 import { MemoActions } from "./MemoActions";
-import { buildShareUrl } from "../integrationHelpers";
 import { shouldOpenMemoDetailFromCardClick } from "../cardClick";
 import type { CurrentUser } from "../App";
-import {
-  CommentsSection,
-  MemoCardEditor,
-  MemoCardHeader,
-  ReactionList,
-  ReactionPicker,
-  ShareUrlBox,
-} from "./MemoCardSections";
+import { MemoCardEditor, MemoCardHeader } from "./MemoCardSections";
 
 export interface Memo {
   name: string;
@@ -43,13 +35,6 @@ export interface Attachment {
   url: string;
 }
 
-export interface Reaction {
-  id: number;
-  reactionType: string;
-  creator: { id: number; username: string };
-  createdTs: number;
-}
-
 interface MemoCardProps {
   memo: Memo;
   currentUser: CurrentUser | null;
@@ -60,8 +45,6 @@ interface MemoCardProps {
   onSelect?: (uid: string, checked: boolean) => void;
   highlight?: string;
 }
-
-const EMOJI_OPTIONS = ["👍", "❤️", "😄", "🎉", "🤔", "👀"];
 
 export function MemoCard({
   memo,
@@ -78,16 +61,6 @@ export function MemoCard({
   const [editContent, setEditContent] = useState(memo.content);
   const [editVisibility, setEditVisibility] = useState(memo.visibility);
   const [saving, setSaving] = useState(false);
-  const [reactions, setReactions] = useState<Reaction[]>([]);
-  const [reactionsLoaded, setReactionsLoaded] = useState(false);
-  const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const [showComments, setShowComments] = useState(false);
-  const [comments, setComments] = useState<Memo[]>([]);
-  const [commentsLoaded, setCommentsLoaded] = useState(false);
-  const [commentContent, setCommentContent] = useState("");
-  const [commenting, setCommenting] = useState(false);
-  const [shareUrl, setShareUrl] = useState("");
-  const [showShare, setShowShare] = useState(false);
 
   const isOwner = currentUser && memo.creator.id === currentUser.id;
 
@@ -173,114 +146,6 @@ export function MemoCard({
     }
   };
 
-  const loadReactions = useCallback(async () => {
-    if (reactionsLoaded) return;
-    try {
-      const data = await api<{ reactions: Reaction[] }>(
-        `/api/v1/memos/${memo.uid}/reactions`
-      );
-      setReactions(data.reactions);
-      setReactionsLoaded(true);
-    } catch (err) {
-      notify(`加载表态失败：${(err as Error).message}`, "error");
-    }
-  }, [memo.uid, reactionsLoaded]);
-
-  const addReaction = async (reactionType: string) => {
-    setShowReactionPicker(false);
-    try {
-      const data = await api<{ reactions: Reaction[] }>(
-        `/api/v1/memos/${memo.uid}/reactions`,
-        {
-          method: "POST",
-          body: JSON.stringify({ reactionType }),
-        }
-      );
-      setReactions(data.reactions);
-      setReactionsLoaded(true);
-    } catch (err) {
-      notify(`表态失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const removeReaction = async (reactionId: number) => {
-    try {
-      const data = await api<{ reactions: Reaction[] }>(
-        `/api/v1/memos/${memo.uid}/reactions/${reactionId}`,
-        { method: "DELETE" }
-      );
-      setReactions(data.reactions);
-    } catch (err) {
-      notify(`取消表态失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const loadComments = useCallback(async () => {
-    if (commentsLoaded) return;
-    try {
-      const data = await api<{ memos: Memo[] }>(
-        `/api/v1/memos/${memo.uid}/comments`
-      );
-      setComments(data.memos);
-      setCommentsLoaded(true);
-    } catch (err) {
-      notify(`加载评论失败：${(err as Error).message}`, "error");
-    }
-  }, [memo.uid, commentsLoaded]);
-
-  const handleToggleComments = () => {
-    const next = !showComments;
-    setShowComments(next);
-    if (next) loadComments();
-  };
-
-  const handleAddComment = async () => {
-    const trimmed = commentContent.trim();
-    if (!trimmed) return;
-    setCommenting(true);
-    try {
-      const data = await api<{ memo: Memo }>(
-        `/api/v1/memos/${memo.uid}/comments`,
-        {
-          method: "POST",
-          body: JSON.stringify({ content: trimmed }),
-        }
-      );
-      if (data.memo) {
-        setComments((prev) => [...prev, data.memo]);
-      }
-      setCommentContent("");
-    } catch (err) {
-      notify(`评论失败：${(err as Error).message}`, "error");
-    } finally {
-      setCommenting(false);
-    }
-  };
-
-  const handleShare = async () => {
-    if (showShare) {
-      setShowShare(false);
-      return;
-    }
-    try {
-      const data = await api<{ share: { uid: string; url: string } }>(
-        `/api/v1/memos/${memo.uid}/shares`,
-        { method: "POST", body: JSON.stringify({}) }
-      );
-      const full = buildShareUrl(window.location.origin, data.share.uid);
-      setShareUrl(full);
-      setShowShare(true);
-    } catch (err) {
-      notify(`分享失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const handleToggleReactions = () => {
-    const next = !showReactionPicker;
-    if (next) loadReactions();
-    setShowReactionPicker(next);
-  };
-
   const openDetail = () => route(`/memos/${memo.uid}`);
 
   const handleCardClick = (event: MouseEvent) => {
@@ -330,53 +195,17 @@ export function MemoCard({
 
       <AttachmentList attachments={memo.attachments} />
 
-      <ReactionList
-        reactions={reactions}
-        currentUser={currentUser}
-        onRemove={removeReaction}
-      />
-
-      {showReactionPicker && (
-        <ReactionPicker options={EMOJI_OPTIONS} onAdd={addReaction} />
-      )}
-
-      {showComments && (
-        <CommentsSection
-          comments={comments}
-          commentsLoaded={commentsLoaded}
-          currentUser={currentUser}
-          commentContent={commentContent}
-          commenting={commenting}
-          onCommentContentChange={setCommentContent}
-          onAddComment={handleAddComment}
-        />
-      )}
-
-      {showShare && shareUrl && (
-        <ShareUrlBox
-          shareUrl={shareUrl}
-          onCopy={() => {
-            navigator.clipboard.writeText(shareUrl);
-            notify("分享链接已复制", "success");
-          }}
-        />
-      )}
-
       {!selectionMode && (
         <MemoActions
           isOwner={isOwner}
           archived={memo.rowStatus === "ARCHIVED"}
           editing={editing}
           pinned={memo.pinned}
-          commentCount={commentsLoaded ? comments.length : 0}
           onEdit={() => { setEditContent(memo.content); setEditVisibility(memo.visibility); setEditing(true); }}
           onPin={handleTogglePinned}
           onArchive={handleArchive}
           onRestore={handleRestore}
           onDelete={handlePurge}
-          onReact={handleToggleReactions}
-          onComments={handleToggleComments}
-          onShare={handleShare}
         />
       )}
     </div>

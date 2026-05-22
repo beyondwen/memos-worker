@@ -2,22 +2,16 @@ import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
 import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
-import { normalizeWebhookForm } from "../integrationHelpers";
 import { attachmentCleanupSummary } from "../attachmentCleanupView";
 import { PERSONAL_MODE_FEATURES } from "../personalMode";
 import type { CurrentUser } from "../App";
 import { AccountSettingsTab } from "./AccountSettingsTab";
 import { DataSettingsTab } from "./DataSettingsTab";
-import { IntegrationSettingsTab } from "./IntegrationSettingsTab";
 import {
   type Attachment,
   type AuditLog,
-  type NewPat,
-  type Pat,
   type SettingsTab,
   type UserStats,
-  type Webhook,
-  type WebhookDelivery,
 } from "./settingsModel";
 import { reportSettingsLoadError } from "./settingsErrors";
 import { AuditSettingsTab, MaintenanceSettingsTab, SettingsTabBar } from "./settingsTabs";
@@ -43,17 +37,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [pwMsg, setPwMsg] = useState("");
   const [pwError, setPwError] = useState("");
 
-  const [pats, setPats] = useState<Pat[]>([]);
-  const [newPatName, setNewPatName] = useState("");
-  const [newPatResult, setNewPatResult] = useState<NewPat | null>(null);
-  const [patCreating, setPatCreating] = useState(false);
-  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
-  const [webhookName, setWebhookName] = useState("");
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [webhookSaving, setWebhookSaving] = useState(false);
-  const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
-  const [retryingDeliveryId, setRetryingDeliveryId] = useState<number | null>(null);
-  const [testingWebhookId, setTestingWebhookId] = useState<number | null>(null);
   const [unattachedAttachments, setUnattachedAttachments] = useState<Attachment[]>([]);
   const [deletingAttachmentUid, setDeletingAttachmentUid] = useState("");
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -70,7 +53,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   useEffect(() => {
     if (
       (currentUser?.role !== "ADMIN" && (activeSettingsTab === "data" || activeSettingsTab === "audit")) ||
-      (!PERSONAL_MODE_FEATURES.integrations && activeSettingsTab === "integrations") ||
       (!PERSONAL_MODE_FEATURES.audit && activeSettingsTab === "audit")
     ) {
       setActiveSettingsTab("account");
@@ -83,42 +65,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       setEmail(currentUser.email || "");
       setDescription(currentUser.description || "");
       setAvatarUrl(currentUser.avatarUrl || "");
-    }
-  }, [currentUser]);
-
-  const fetchPats = useCallback(async () => {
-    if (!currentUser) return;
-    try {
-      const data = await api<{ accessTokens: Pat[] }>(
-        `/api/v1/users/${currentUser.username}/access-tokens`
-      );
-      setPats(data.accessTokens);
-    } catch (err) {
-      reportSettingsLoadError("访问令牌", err);
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    fetchPats();
-  }, [fetchPats]);
-
-  const fetchWebhooks = useCallback(async () => {
-    if (!currentUser || !PERSONAL_MODE_FEATURES.integrations) return;
-    try {
-      const data = await api<{ webhooks: Webhook[] }>("/api/v1/webhooks");
-      setWebhooks(data.webhooks);
-    } catch (err) {
-      reportSettingsLoadError("Webhook", err);
-    }
-  }, [currentUser]);
-
-  const fetchWebhookDeliveries = useCallback(async () => {
-    if (!currentUser || !PERSONAL_MODE_FEATURES.integrations) return;
-    try {
-      const data = await api<{ deliveries: WebhookDelivery[] }>("/api/v1/webhooks/deliveries");
-      setWebhookDeliveries(data.deliveries);
-    } catch (err) {
-      reportSettingsLoadError("Webhook 投递记录", err);
     }
   }, [currentUser]);
 
@@ -157,12 +103,10 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   }, [currentUser]);
 
   useEffect(() => {
-    fetchWebhooks();
-    fetchWebhookDeliveries();
     fetchUnattachedAttachments();
     fetchAuditLogs();
     fetchOverview();
-  }, [fetchAuditLogs, fetchOverview, fetchUnattachedAttachments, fetchWebhookDeliveries, fetchWebhooks]);
+  }, [fetchAuditLogs, fetchOverview, fetchUnattachedAttachments]);
 
   const dataSettings = useSettingsDataController({
     currentUser,
@@ -209,131 +153,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       setPwError((err as Error).message);
     } finally {
       setPwSaving(false);
-    }
-  };
-
-  const handleCreatePat = async (e: Event) => {
-    e.preventDefault();
-    setPatCreating(true);
-    setNewPatResult(null);
-    try {
-      const data = await api<{ accessToken: NewPat }>(
-        `/api/v1/users/${currentUser.username}/access-tokens`,
-        {
-          method: "POST",
-          body: JSON.stringify({ name: newPatName || "Unnamed Token" }),
-        }
-      );
-      setNewPatResult(data.accessToken);
-      setNewPatName("");
-      fetchPats();
-    } catch (err) {
-      notify(`创建令牌失败：${(err as Error).message}`, "error");
-    } finally {
-      setPatCreating(false);
-    }
-  };
-
-  const handleDeletePat = async (id: number) => {
-    const ok = await confirm({
-      title: "删除此令牌？",
-      message: "删除后使用该令牌的客户端会立即失效。",
-      confirmText: "删除",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await api(
-        `/api/v1/users/${currentUser.username}/access-tokens/${id}`,
-        { method: "DELETE" }
-      );
-      fetchPats();
-      notify("令牌已删除", "success");
-    } catch (err) {
-      notify(`删除令牌失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const handleCreateWebhook = async (e: Event) => {
-    e.preventDefault();
-    const normalized = normalizeWebhookForm(webhookName, webhookUrl);
-    if (!normalized.ok) {
-      notify(normalized.error, "error");
-      return;
-    }
-    setWebhookSaving(true);
-    try {
-      await api("/api/v1/webhooks", {
-        method: "POST",
-        body: JSON.stringify({ name: normalized.name, url: normalized.url }),
-      });
-      setWebhookName("");
-      setWebhookUrl("");
-      fetchWebhooks();
-      fetchWebhookDeliveries();
-      notify("Webhook 已创建", "success");
-    } catch (err) {
-      notify(`创建 Webhook 失败：${(err as Error).message}`, "error");
-    } finally {
-      setWebhookSaving(false);
-    }
-  };
-
-  const handleToggleWebhook = async (webhook: Webhook) => {
-    const next = webhook.rowStatus === "NORMAL" ? "ARCHIVED" : "NORMAL";
-    try {
-      await api(`/api/v1/webhooks/${webhook.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ rowStatus: next }),
-      });
-      fetchWebhooks();
-      fetchWebhookDeliveries();
-    } catch (err) {
-      notify(`更新 Webhook 失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const handleTestWebhook = async (webhook: Webhook) => {
-    setTestingWebhookId(webhook.id);
-    try {
-      await api(`/api/v1/webhooks/${webhook.id}/test`, { method: "POST" });
-      await fetchWebhookDeliveries();
-      notify("测试事件已发送", "success");
-    } catch (err) {
-      notify(`测试失败：${(err as Error).message}`, "error");
-    } finally {
-      setTestingWebhookId(null);
-    }
-  };
-
-  const handleDeleteWebhook = async (webhook: Webhook) => {
-    const ok = await confirm({
-      title: "删除 Webhook？",
-      message: "删除后相关自动化推送会停止。",
-      confirmText: "删除",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await api(`/api/v1/webhooks/${webhook.id}`, { method: "DELETE" });
-      fetchWebhooks();
-      fetchWebhookDeliveries();
-      notify("Webhook 已删除", "success");
-    } catch (err) {
-      notify(`删除 Webhook 失败：${(err as Error).message}`, "error");
-    }
-  };
-
-  const handleRetryWebhookDelivery = async (delivery: WebhookDelivery) => {
-    setRetryingDeliveryId(delivery.id);
-    try {
-      await api(`/api/v1/webhooks/deliveries/${delivery.id}/retry`, { method: "POST" });
-      await fetchWebhookDeliveries();
-      notify("Webhook 已重试", "success");
-    } catch (err) {
-      notify(`重试失败：${(err as Error).message}`, "error");
-    } finally {
-      setRetryingDeliveryId(null);
     }
   };
 
@@ -387,7 +206,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
         <div>
           <div class="home-kicker">Settings</div>
           <h1>设置</h1>
-          <p>管理资料、密码、集成和数据</p>
+          <p>管理资料、密码和数据</p>
         </div>
       </div>
 
@@ -413,40 +232,14 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           pwSaving={pwSaving}
           pwMsg={pwMsg}
           pwError={pwError}
-          pats={pats}
-          newPatName={newPatName}
-          newPatResult={newPatResult}
-          patCreating={patCreating}
           onNicknameChange={setNickname}
           onEmailChange={setEmail}
           onDescriptionChange={setDescription}
           onAvatarUrlChange={setAvatarUrl}
           onCurrentPasswordChange={setCurrentPassword}
           onNewPasswordChange={setNewPassword}
-          onNewPatNameChange={setNewPatName}
           onProfileSave={handleProfileSave}
           onPasswordChange={handlePasswordChange}
-          onCreatePat={handleCreatePat}
-          onDeletePat={handleDeletePat}
-        />
-      )}
-
-      {activeSettingsTab === "integrations" && (
-        <IntegrationSettingsTab
-          webhooks={webhooks}
-          webhookName={webhookName}
-          webhookUrl={webhookUrl}
-          webhookSaving={webhookSaving}
-          webhookDeliveries={webhookDeliveries}
-          retryingDeliveryId={retryingDeliveryId}
-          testingWebhookId={testingWebhookId}
-          onWebhookNameChange={setWebhookName}
-          onWebhookUrlChange={setWebhookUrl}
-          onCreateWebhook={handleCreateWebhook}
-          onToggleWebhook={handleToggleWebhook}
-          onTestWebhook={handleTestWebhook}
-          onDeleteWebhook={handleDeleteWebhook}
-          onRetryWebhookDelivery={handleRetryWebhookDelivery}
         />
       )}
 

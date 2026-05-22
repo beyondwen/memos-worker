@@ -91,7 +91,6 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
 
   const client = new SmokeClient(config, fetchImpl);
   const created = [];
-  const cleanupInboxIds = [];
   let webhookId = null;
   let primaryMemo;
   try {
@@ -110,13 +109,6 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
 
     const comment = await client.createComment(primaryMemo.uid, "e2e comment");
     created.push(comment.uid);
-    const inboxItem = await client.findCommentInbox(primaryMemo.uid, comment.uid);
-    assert(inboxItem, "comment inbox notification was not found");
-    cleanupInboxIds.push(inboxItem.id);
-
-    await client.upsertReaction(primaryMemo.uid, "👍");
-    const reactions = await client.listReactions(primaryMemo.uid);
-    assert(reactions.some((reaction) => reaction.reactionType === "👍"), "reaction was not persisted");
 
     await client.setRelations(primaryMemo.uid, relatedMemo.uid);
     const relations = await client.listRelations(primaryMemo.uid);
@@ -124,11 +116,6 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
       relations.some((relation) => relation.memo === `memos/${relatedMemo.uid}`),
       "relation was not persisted",
     );
-
-    const share = await client.createShare(primaryMemo.uid);
-    assert(share.uid, "share uid is missing");
-    await client.fetchPublicShare(share.uid);
-    await client.deleteShare(primaryMemo.uid, share.id);
 
     await client.bulkVisibility([primaryMemo.uid, relatedMemo.uid], "PROTECTED");
     const updated = await client.getMemo(primaryMemo.uid);
@@ -141,9 +128,6 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
     const sseEvents = await client.fetchSseEvents();
     assertEvent(sseEvents, "memo.created", primaryMemo.uid);
     assertEvent(sseEvents, "memo.comment.created", primaryMemo.uid);
-    assertEvent(sseEvents, "reaction.upserted", primaryMemo.uid);
-    assertEvent(sseEvents, "share.created", primaryMemo.uid);
-    assertEvent(sseEvents, "share.deleted", primaryMemo.uid);
     assertEvent(sseEvents, "memo.bulk.updated", primaryMemo.uid);
 
     let webhookDeliveries = [];
@@ -159,16 +143,10 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
       ok: true,
       memoUids: created,
       sseEvents: sseEvents.map((event) => event.event).filter(Boolean),
-      inboxIds: cleanupInboxIds,
       webhookDeliveryCount: webhookDeliveries.length,
     };
   } finally {
     if (!config.keepData && client.token) {
-      for (const id of cleanupInboxIds) {
-        await client.deleteInboxItem(id).catch((error) => {
-          console.warn(`cleanup inbox failed for ${id}: ${error.message}`);
-        });
-      }
       if (webhookId) {
         await client.deleteWebhook(webhookId).catch((error) => {
           console.warn(`cleanup webhook failed for ${webhookId}: ${error.message}`);
@@ -258,35 +236,8 @@ class SmokeClient {
     return body.memo;
   }
 
-  async findCommentInbox(memoUid, commentUid) {
-    const body = await this.authed("/api/v1/inbox");
-    assert(Array.isArray(body.inbox), "inbox response did not return inbox");
-    return body.inbox.find((item) => (
-      item.message?.type === "memo.comment.created"
-      && item.message?.memoUid === memoUid
-      && item.message?.commentUid === commentUid
-    ));
-  }
-
-  async deleteInboxItem(id) {
-    return this.authed(`/api/v1/inbox/${id}`, { method: "DELETE" });
-  }
-
   async deleteUser(username) {
     return this.authed(`/api/v1/users/${encodeURIComponent(username)}`, { method: "DELETE" });
-  }
-
-  async upsertReaction(uid, reactionType) {
-    return this.authed(`/api/v1/memos/${encodeURIComponent(uid)}/reactions`, {
-      method: "POST",
-      body: { reactionType },
-    });
-  }
-
-  async listReactions(uid) {
-    const body = await this.authed(`/api/v1/memos/${encodeURIComponent(uid)}/reactions`);
-    assert(Array.isArray(body.reactions), "list reactions did not return reactions");
-    return body.reactions;
   }
 
   async setRelations(uid, relatedUid) {
@@ -300,27 +251,6 @@ class SmokeClient {
     const body = await this.authed(`/api/v1/memos/${encodeURIComponent(uid)}/relations`);
     assert(Array.isArray(body.relations), "list relations did not return relations");
     return body.relations;
-  }
-
-  async createShare(uid) {
-    const body = await this.authed(`/api/v1/memos/${encodeURIComponent(uid)}/shares`, {
-      method: "POST",
-      body: {},
-    });
-    assert(body.share?.id, "create share did not return share id");
-    return body.share;
-  }
-
-  async deleteShare(uid, shareId) {
-    return this.authed(`/api/v1/memos/${encodeURIComponent(uid)}/shares/${shareId}`, {
-      method: "DELETE",
-    });
-  }
-
-  async fetchPublicShare(shareUid) {
-    const body = await this.request(`/api/v1/shares/${encodeURIComponent(shareUid)}`);
-    assert(body.memo?.uid, "public share did not return memo");
-    return body.memo;
   }
 
   async bulkVisibility(memoUids, visibility) {

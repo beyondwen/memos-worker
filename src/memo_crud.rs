@@ -125,21 +125,11 @@ pub(crate) async fn memo_subroute(
         match memo_child_route(&parts, &method) {
             MemoChildRoute::ListComments => return list_comments(env, viewer, uid).await,
             MemoChildRoute::CreateComment => return create_comment(req, env, viewer, uid).await,
-            MemoChildRoute::ListReactions => return list_reactions(env, viewer, uid).await,
-            MemoChildRoute::UpsertReaction => return upsert_reaction(req, env, viewer, uid).await,
-            MemoChildRoute::DeleteReaction(reaction_id) => {
-                return delete_reaction(env, viewer, uid, reaction_id).await
-            }
             MemoChildRoute::GetRelations => return get_relations(env, viewer, uid).await,
             MemoChildRoute::SuggestRelations => {
                 return suggest_memo_relations(env, viewer, uid).await
             }
             MemoChildRoute::SetRelations => return set_relations(req, env, viewer, uid).await,
-            MemoChildRoute::ListShares => return list_shares(env, viewer, uid).await,
-            MemoChildRoute::CreateShare => return create_share(req, env, viewer, uid).await,
-            MemoChildRoute::DeleteShare(share_id) => {
-                return delete_share(env, viewer, uid, share_id).await
-            }
             MemoChildRoute::Unsupported => {
                 return Err(AppError::new(404, "Memo subroute not found"))
             }
@@ -186,25 +176,15 @@ pub(crate) async fn memo_subroute(
     }
 }
 
-pub(crate) fn memo_child_route<'a>(parts: &'a [&'a str], method: &Method) -> MemoChildRoute<'a> {
+pub(crate) fn memo_child_route(parts: &[&str], method: &Method) -> MemoChildRoute {
     match (parts.get(1).copied(), method) {
         (Some("comments"), Method::Get) => MemoChildRoute::ListComments,
         (Some("comments"), Method::Post) => MemoChildRoute::CreateComment,
-        (Some("reactions"), Method::Get) => MemoChildRoute::ListReactions,
-        (Some("reactions"), Method::Post) => MemoChildRoute::UpsertReaction,
-        (Some("reactions"), Method::Delete) if parts.len() > 2 => {
-            MemoChildRoute::DeleteReaction(parts[2])
-        }
         (Some("relations"), Method::Get) if parts.len() == 2 => MemoChildRoute::GetRelations,
         (Some("relations"), Method::Post) if parts.get(2) == Some(&"suggest") => {
             MemoChildRoute::SuggestRelations
         }
         (Some("relations"), Method::Patch) if parts.len() == 2 => MemoChildRoute::SetRelations,
-        (Some("shares"), Method::Get) => MemoChildRoute::ListShares,
-        (Some("shares"), Method::Post) => MemoChildRoute::CreateShare,
-        (Some("shares"), Method::Delete) if parts.len() > 2 => {
-            MemoChildRoute::DeleteShare(parts[2])
-        }
         _ => MemoChildRoute::Unsupported,
     }
 }

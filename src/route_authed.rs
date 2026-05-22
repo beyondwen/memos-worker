@@ -56,16 +56,6 @@ pub(crate) async fn authed_route(
     if path == "/api/v1/timeline" && method == Method::Get {
         return timeline(env, &viewer).await;
     }
-    if path == "/api/v1/inbox" && method == Method::Get {
-        return list_inbox(env, &viewer).await;
-    }
-    if path == "/api/v1/inbox" && method == Method::Patch {
-        return update_inbox_status(req, env, &viewer).await;
-    }
-    if path.starts_with("/api/v1/inbox/") && method == Method::Delete {
-        let id = path.trim_start_matches("/api/v1/inbox/");
-        return delete_inbox_item(env, &viewer, id).await;
-    }
     if path == "/api/v1/attachments" && method == Method::Get {
         return list_attachments(env, url, &viewer).await;
     }

@@ -1,44 +1,3 @@
-export interface Pat {
-  id: number;
-  name: string;
-  prefix: string;
-  createdTs: number;
-  expiresTs: number | null;
-  rowStatus: string;
-}
-
-export interface NewPat {
-  id: number;
-  name: string;
-  token: string;
-  prefix: string;
-  createdTs: number;
-  expiresTs: number | null;
-}
-
-export interface Webhook {
-  id: number;
-  name: string;
-  url: string;
-  rowStatus: "NORMAL" | "ARCHIVED";
-  createdTs: number;
-  updatedTs: number;
-}
-
-export interface WebhookDelivery {
-  id: number;
-  webhookId: number;
-  webhookName: string;
-  webhookUrl: string;
-  createdTs: number;
-  event: string;
-  status: "SUCCESS" | "FAILED";
-  statusCode: number | null;
-  durationMs: number;
-  error: string;
-  responseBody: string;
-}
-
 export interface Attachment {
   uid: string;
   filename: string;
@@ -106,7 +65,7 @@ export interface AuditLog {
   detail?: Record<string, unknown>;
 }
 
-export type SettingsTab = "account" | "integrations" | "data" | "maintenance" | "audit";
+export type SettingsTab = "account" | "data" | "maintenance" | "audit";
 
 export const SETTINGS_TABS: Array<{
   id: SettingsTab;
@@ -115,7 +74,6 @@ export const SETTINGS_TABS: Array<{
   adminOnly?: boolean;
 }> = [
   { id: "account", label: "账号", description: "资料和密码" },
-  { id: "integrations", label: "集成", description: "Webhook 和投递记录" },
   { id: "data", label: "数据", description: "导入导出、备份和标签", adminOnly: true },
   { id: "maintenance", label: "维护", description: "附件清理" },
   { id: "audit", label: "审计", description: "操作记录", adminOnly: true },
