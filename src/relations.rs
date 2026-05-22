@@ -140,7 +140,7 @@ pub(crate) async fn suggest_memo_relations(
     json_response(json!({ "suggestions": suggestions }), 200).map_err(AppError::from)
 }
 
-pub(crate) async fn request_ai_relation_suggestions(
+async fn request_ai_relation_suggestions(
     settings: &AiSettings,
     memo: &DbMemo,
     candidates: &[RankedRelationCandidate],
@@ -205,7 +205,7 @@ pub(crate) async fn request_ai_relation_suggestions(
     Ok(parse_ai_relation_suggestions(content, candidate_content))
 }
 
-pub(crate) fn relation_candidate_from_memo(memo: &DbMemo) -> RelationCandidate {
+fn relation_candidate_from_memo(memo: &DbMemo) -> RelationCandidate {
     RelationCandidate {
         uid: memo.uid.clone(),
         content: memo.content.clone(),
@@ -318,7 +318,7 @@ pub(crate) fn parse_ai_relation_suggestions(
     suggestions
 }
 
-pub(crate) fn extract_payload_tags(payload: &str) -> Vec<String> {
+fn extract_payload_tags(payload: &str) -> Vec<String> {
     let parsed = serde_json::from_str::<Value>(payload).unwrap_or_else(|_| json!({}));
     parsed
         .get("tags")
@@ -334,7 +334,7 @@ pub(crate) fn extract_payload_tags(payload: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub(crate) fn extract_keywords(content: &str) -> Vec<String> {
+fn extract_keywords(content: &str) -> Vec<String> {
     let mut words = BTreeSet::new();
     let mut current = String::new();
     for ch in content.to_lowercase().chars() {
@@ -348,7 +348,7 @@ pub(crate) fn extract_keywords(content: &str) -> Vec<String> {
     words.into_iter().take(80).collect()
 }
 
-pub(crate) fn push_keyword(words: &mut BTreeSet<String>, current: &mut String) {
+fn push_keyword(words: &mut BTreeSet<String>, current: &mut String) {
     let len = current.chars().count();
     if (2..=32).contains(&len) {
         words.insert(std::mem::take(current));
@@ -357,7 +357,7 @@ pub(crate) fn push_keyword(words: &mut BTreeSet<String>, current: &mut String) {
     }
 }
 
-pub(crate) fn clamp_confidence(value: f64) -> f64 {
+fn clamp_confidence(value: f64) -> f64 {
     if value.is_finite() {
         value.clamp(0.0, 1.0)
     } else {

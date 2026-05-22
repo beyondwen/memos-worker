@@ -172,7 +172,7 @@ pub(crate) async fn delete_reaction(
     list_reactions_for_memo(env, memo.id).await
 }
 
-pub(crate) async fn list_reactions_for_memo(
+async fn list_reactions_for_memo(
     env: &Env,
     memo_id: i64,
 ) -> std::result::Result<Response, AppError> {

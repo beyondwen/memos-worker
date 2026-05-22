@@ -308,7 +308,7 @@ pub(crate) fn sanitize_filename(name: &str) -> String {
     }
 }
 
-pub(crate) fn can_read_attachment(attachment: &DbAttachment, viewer: &Viewer) -> bool {
+fn can_read_attachment(attachment: &DbAttachment, viewer: &Viewer) -> bool {
     viewer.role == "ADMIN"
         || (attachment.memo_id.is_none() && attachment.creator_id == viewer.id)
         || attachment.memo_visibility.as_deref() != Some("PRIVATE")

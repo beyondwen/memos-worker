@@ -84,7 +84,7 @@ pub(crate) async fn delete_inbox_item(
     json_response(json!({ "ok": true }), 200).map_err(AppError::from)
 }
 
-pub(crate) fn public_inbox_item(row: DbInboxRow) -> Value {
+fn public_inbox_item(row: DbInboxRow) -> Value {
     let sender = row.sender_id
         .map(|id| json!({ "id": id, "username": row.sender_username, "nickname": row.sender_nickname }))
         .unwrap_or(Value::Null);

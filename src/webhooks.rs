@@ -287,7 +287,7 @@ pub(crate) async fn send_and_record_webhook(
     Ok(inserted)
 }
 
-pub(crate) async fn prune_webhook_deliveries(env: &Env, creator_id: i64) {
+async fn prune_webhook_deliveries(env: &Env, creator_id: i64) {
     if let Ok(database) = db(env) {
         let stmt = database.prepare("DELETE FROM webhook_delivery WHERE creator_id = ? AND id NOT IN (SELECT id FROM webhook_delivery WHERE creator_id = ? ORDER BY created_ts DESC, id DESC LIMIT 200)");
         if let Ok(bound) = stmt.bind(&[js_num(creator_id), js_num(creator_id)]) {
@@ -296,7 +296,7 @@ pub(crate) async fn prune_webhook_deliveries(env: &Env, creator_id: i64) {
     }
 }
 
-pub(crate) fn public_webhook(webhook: DbWebhook) -> Value {
+fn public_webhook(webhook: DbWebhook) -> Value {
     json!({
         "id": webhook.id,
         "name": webhook.name,
@@ -307,7 +307,7 @@ pub(crate) fn public_webhook(webhook: DbWebhook) -> Value {
     })
 }
 
-pub(crate) fn public_webhook_delivery(delivery: DbWebhookDelivery) -> Value {
+fn public_webhook_delivery(delivery: DbWebhookDelivery) -> Value {
     json!({
         "id": delivery.id,
         "webhookId": delivery.webhook_id,
