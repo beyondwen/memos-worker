@@ -11,6 +11,7 @@ import {
   type Attachment,
   type AuditLog,
   type SettingsTab,
+  type UserSession,
   type UserStats,
 } from "./settingsModel";
 import { reportSettingsLoadError } from "./settingsErrors";
@@ -41,6 +42,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   const [deletingAttachmentUid, setDeletingAttachmentUid] = useState("");
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
+  const [sessions, setSessions] = useState<UserSession[]>([]);
+  const [revokingSessionId, setRevokingSessionId] = useState("");
   const [instanceName, setInstanceName] = useState("Memos Worker");
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("account");
 
@@ -102,11 +105,22 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   }, [currentUser]);
 
+  const fetchSessions = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api<{ sessions: UserSession[] }>("/api/v1/auth/sessions");
+      setSessions(data.sessions);
+    } catch (err) {
+      reportSettingsLoadError("登录会话", err);
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     fetchUnattachedAttachments();
     fetchAuditLogs();
     fetchOverview();
-  }, [fetchAuditLogs, fetchOverview, fetchUnattachedAttachments]);
+    fetchSessions();
+  }, [fetchAuditLogs, fetchOverview, fetchSessions, fetchUnattachedAttachments]);
 
   const dataSettings = useSettingsDataController({
     currentUser,
@@ -198,6 +212,27 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
+  const handleRevokeSession = async (session: UserSession) => {
+    const ok = await confirm({
+      title: session.current ? "撤销当前会话？" : "撤销这个会话？",
+      message: session.userAgent || session.id,
+      confirmText: "撤销",
+      danger: session.current,
+    });
+    if (!ok) return;
+    setRevokingSessionId(session.id);
+    try {
+      await api(`/api/v1/auth/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      await fetchSessions();
+      notify("会话已撤销", "success");
+      if (session.current) window.location.href = "/auth";
+    } catch (err) {
+      notify(`撤销会话失败：${(err as Error).message}`, "error");
+    } finally {
+      setRevokingSessionId("");
+    }
+  };
+
   const attachmentSummary = attachmentCleanupSummary(unattachedAttachments);
 
   return (
@@ -221,6 +256,8 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           currentUser={currentUser}
           instanceName={instanceName}
           stats={stats}
+          sessions={sessions}
+          revokingSessionId={revokingSessionId}
           nickname={nickname}
           email={email}
           description={description}
@@ -240,6 +277,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           onNewPasswordChange={setNewPassword}
           onProfileSave={handleProfileSave}
           onPasswordChange={handlePasswordChange}
+          onRevokeSession={handleRevokeSession}
         />
       )}
 

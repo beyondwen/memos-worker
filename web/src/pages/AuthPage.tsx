@@ -12,10 +12,12 @@ interface AuthPageProps {
 interface InstanceInfo {
   name: string;
   setupRequired: boolean;
+  signupEnabled: boolean;
 }
 
 export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
+  const [signupEnabled, setSignupEnabled] = useState(false);
   const [isSignup, setIsSignup] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -31,10 +33,15 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
     }
     setInstanceError("");
     api<InstanceInfo>("/api/v1/instance")
-      .then((data) => setSetupRequired(data.setupRequired))
+      .then((data) => {
+        setSetupRequired(data.setupRequired);
+        setSignupEnabled(Boolean(data.signupEnabled));
+        if (!data.signupEnabled) setIsSignup(false);
+      })
       .catch((err) => {
         setInstanceError((err as Error).message || "无法读取实例状态");
         setSetupRequired(null);
+        setSignupEnabled(false);
       });
   }, [currentUser]);
 
@@ -85,7 +92,7 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
       if (setupRequired) {
         endpoint = "/api/v1/setup";
         if (nickname) body.nickname = nickname;
-      } else if (isSignup) {
+      } else if (isSignup && signupEnabled) {
         endpoint = "/api/v1/auth/signup";
         if (nickname) body.nickname = nickname;
       } else {
@@ -111,7 +118,7 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
 
   const title = setupRequired
     ? "创建管理员账号"
-    : isSignup
+    : isSignup && signupEnabled
     ? "注册新账号"
     : "登录";
 
@@ -119,7 +126,7 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
     ? "请稍候..."
     : setupRequired
     ? "创建账号"
-    : isSignup
+    : isSignup && signupEnabled
     ? "注册"
     : "登录";
 
@@ -152,11 +159,11 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
               value={password}
               onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
               required
-              autoComplete={(setupRequired || isSignup) ? "new-password" : "current-password"}
+              autoComplete={(setupRequired || (isSignup && signupEnabled)) ? "new-password" : "current-password"}
             />
           </div>
 
-          {(setupRequired || isSignup) && (
+          {(setupRequired || (isSignup && signupEnabled)) && (
             <div class="form-group">
               <label class="form-label">昵称（可选）</label>
               <input
@@ -179,7 +186,7 @@ export function AuthPage({ currentUser, onLogin }: AuthPageProps) {
           </button>
         </form>
 
-        {!setupRequired && (
+        {!setupRequired && signupEnabled && (
           <div style={{ textAlign: "center", marginTop: "16px" }}>
             <button
               class="btn-link"

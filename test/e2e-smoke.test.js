@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BULK_MEMO_PATH,
+  SmokeClient,
   authHeaders,
   loadConfig,
   missingConfig,
@@ -20,6 +21,8 @@ describe("e2e smoke script helpers", () => {
       password: "secret",
       keepData: false,
       signup: false,
+      security: false,
+      maintenance: false,
       cleanupUser: false,
       adminUsername: "",
       adminPassword: "",
@@ -49,11 +52,15 @@ describe("e2e smoke script helpers", () => {
       MEMOS_E2E_USERNAME: "e2e_user",
       MEMOS_E2E_PASSWORD: "secret123",
       MEMOS_E2E_SIGNUP: "1",
+      MEMOS_E2E_SECURITY: "true",
+      MEMOS_E2E_MAINTENANCE: "1",
       MEMOS_E2E_CLEANUP_USER: "true",
       MEMOS_E2E_ADMIN_USERNAME: "admin",
       MEMOS_E2E_ADMIN_PASSWORD: "admin-secret",
     })).toMatchObject({
       signup: true,
+      security: true,
+      maintenance: true,
       cleanupUser: true,
       adminUsername: "admin",
       adminPassword: "admin-secret",
@@ -114,4 +121,100 @@ describe("e2e smoke script helpers", () => {
       { id: "42", event: "memo.created", data: { name: "memos/m1" } },
     ]);
   });
+
+  it("security smoke checks enforce signup, csrf and revoked token expectations", async () => {
+    const calls = [];
+    const fetchImpl = async (url, options = {}) => {
+      const path = new URL(url).pathname;
+      calls.push({ path, options });
+      if (path === "/api/v1/auth/signup") {
+        return jsonResponse({ error: "Public signup is disabled" }, 403);
+      }
+      if (path === "/api/v1/memos" && options.headers?.get?.("Cookie") && !options.headers?.get?.("Authorization")) {
+        return jsonResponse({ error: "Invalid CSRF token" }, 403);
+      }
+      if (path === "/api/v1/memos" && options.headers?.get?.("Authorization")) {
+        return jsonResponse({ memo: { uid: "m_security" } }, 201);
+      }
+      if (path === "/api/v1/memos/m_security") {
+        return jsonResponse({ ok: true }, 200);
+      }
+      if (path === "/api/v1/auth/signout") {
+        return jsonResponse({ ok: true }, 200);
+      }
+      if (path === "/api/v1/auth/user") {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+      if (path === "/api/v1/auth/signin") {
+        return new Response(JSON.stringify({ accessToken: "token" }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Set-Cookie": "memos_csrf=csrf; Path=/, memos_access=access; Path=/api/v1",
+          },
+        });
+      }
+      return jsonResponse({}, 200);
+    };
+    const client = new SmokeClient(loadConfig({
+      MEMOS_E2E_USERNAME: "alice",
+      MEMOS_E2E_PASSWORD: "secret123",
+      MEMOS_E2E_SECURITY: "1",
+    }), fetchImpl);
+    await client.signIn();
+    client.cookies.set("memos_csrf", "csrf");
+    client.cookies.set("memos_access", "access");
+
+    await client.assertSecurityDefaults();
+
+    expect(calls.map((call) => call.path)).toContain("/api/v1/auth/signup");
+    expect(calls.map((call) => call.path)).toContain("/api/v1/auth/user");
+  });
+
+  it("maintenance smoke covers health, index rebuild and backup preview", async () => {
+    const calls = [];
+    const fetchImpl = async (url) => {
+      const path = new URL(url).pathname;
+      calls.push(path);
+      if (path === "/api/v1/auth/signin") {
+        return jsonResponse({ accessToken: "token" }, 200);
+      }
+      if (path === "/api/v1/system/health") {
+        return jsonResponse({
+          status: "healthy",
+          memoIndex: { memoCount: 1, healthy: true },
+          backup: { count: 1 },
+        }, 200);
+      }
+      if (path === "/api/v1/memo-index/rebuild") {
+        return jsonResponse({ rebuilt: 1, memoIndex: { healthy: true } }, 200);
+      }
+      if (path === "/api/v1/backups") {
+        return jsonResponse({ backup: { key: "backups/e2e.json" } }, 201);
+      }
+      if (path === "/api/v1/backups/preview") {
+        return jsonResponse({ preview: { memoCount: 1 } }, 200);
+      }
+      return jsonResponse({}, 200);
+    };
+    const client = new SmokeClient(loadConfig({
+      MEMOS_E2E_USERNAME: "admin",
+      MEMOS_E2E_PASSWORD: "secret123",
+      MEMOS_E2E_MAINTENANCE: "1",
+    }), fetchImpl);
+    await client.signIn();
+
+    await client.assertMaintenanceDefaults();
+
+    expect(calls).toContain("/api/v1/system/health");
+    expect(calls).toContain("/api/v1/memo-index/rebuild");
+    expect(calls).toContain("/api/v1/backups/preview");
+  });
 });
+
+function jsonResponse(body, status) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}

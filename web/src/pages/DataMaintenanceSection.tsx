@@ -43,7 +43,10 @@ export function DataMaintenanceSection({
           <div key={backup.key} class="settings-record-row">
             <div class="settings-record-main">
               <span class="settings-record-title">{backup.key.split("/").pop()}</span>
-              <span class="settings-record-meta">{formatBytes(backup.size)} · {new Date(backup.uploaded).toLocaleString("zh-CN")}</span>
+              <span class="settings-record-meta">
+                {formatBytes(backup.size)} · {new Date(backup.uploaded).toLocaleString("zh-CN")}
+                {backup.encrypted ? ` · 加密 ${backup.keyId || ""}` : ""}
+              </span>
             </div>
             <div class="settings-record-actions">
               <a class="btn btn-ghost btn-sm" href={`/api/v1/backups/download?key=${encodeURIComponent(backup.key)}`} target="_blank" rel="noopener noreferrer">

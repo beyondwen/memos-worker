@@ -5,12 +5,14 @@ type ViteImportMeta = ImportMeta & {
 };
 
 const API_BASE_URL = ((import.meta as ViteImportMeta).env?.VITE_API_BASE_URL || "").trim();
+const CSRF_COOKIE = "memos_csrf";
+const CSRF_HEADER = "X-CSRF-Token";
 
 function getBrowserStorage(): Storage | null {
   return typeof window === "undefined" ? null : window.localStorage;
 }
 
-let accessToken = getBrowserStorage()?.getItem("memos_access") || "";
+let accessToken = "";
 let refreshPromise: Promise<boolean> | null = null;
 let authExpiredHandler: (() => void) | null = null;
 
@@ -20,7 +22,6 @@ export function getToken(): string {
 
 export function setToken(token: string): void {
   accessToken = token;
-  getBrowserStorage()?.setItem("memos_access", token);
 }
 
 export function clearToken(): void {
@@ -60,21 +61,44 @@ export async function apiFetch(
   if (accessToken) {
     headers.set("Authorization", "Bearer " + accessToken);
   }
+  applyCsrfHeader(headers, options.method);
 
-  let response = await fetch(buildApiUrl(path), { ...options, headers });
+  let response = await fetch(buildApiUrl(path), { credentials: "include", ...options, headers });
 
-  if (response.status === 401 && accessToken) {
+  if (response.status === 401 && shouldAttemptRefresh(path)) {
+    const hadAccessToken = Boolean(accessToken);
     const refreshed = await tryRefresh();
     if (refreshed) {
       headers.set("Authorization", "Bearer " + accessToken);
-      response = await fetch(buildApiUrl(path), { ...options, headers });
+      applyCsrfHeader(headers, options.method);
+      response = await fetch(buildApiUrl(path), { credentials: "include", ...options, headers });
     } else {
       clearToken();
-      authExpiredHandler?.();
+      if (hadAccessToken) authExpiredHandler?.();
     }
   }
 
   return response;
+}
+
+function applyCsrfHeader(headers: Headers, method: string | undefined): void {
+  if (isSafeMethod(method) || headers.has(CSRF_HEADER)) return;
+  const token = readCookie(CSRF_COOKIE);
+  if (token) headers.set(CSRF_HEADER, token);
+}
+
+function isSafeMethod(method: string | undefined): boolean {
+  return ["GET", "HEAD", "OPTIONS"].includes((method || "GET").toUpperCase());
+}
+
+function readCookie(name: string): string {
+  if (typeof document === "undefined") return "";
+  const prefix = `${name}=`;
+  return document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+    ?.slice(prefix.length) || "";
 }
 
 async function tryRefresh(): Promise<boolean> {
@@ -107,4 +131,16 @@ async function doRefresh(): Promise<boolean> {
 export function buildApiUrl(path: string, baseUrl: string = API_BASE_URL): string {
   if (!baseUrl.trim() || /^https?:\/\//i.test(path)) return path;
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+function shouldAttemptRefresh(path: string): boolean {
+  const url = /^https?:\/\//i.test(path) ? new URL(path) : new URL(path, "https://memos.local");
+  return ![
+    "/api/v1/instance",
+    "/api/v1/setup",
+    "/api/v1/auth/signin",
+    "/api/v1/auth/signup",
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/signout",
+  ].includes(url.pathname);
 }

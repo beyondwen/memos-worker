@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "preact/hooks";
-import { api, getToken } from "../api";
+import { api } from "../api";
 import type { Memo } from "./MemoCard";
 import type { CurrentUser } from "../App";
 import { buildMemoListPath, type MemoPropertyFilter, type MemoState, type MemoVisibility } from "../memoQuery";
@@ -123,7 +123,7 @@ export function MemoList({
 
   useEffect(() => {
     if (!currentUser) return;
-    const source = createMemoEventSource(getToken());
+    const source = createMemoEventSource();
     if (!source) return;
     const refresh = (message: MessageEvent) => {
       try {

@@ -4,11 +4,13 @@ import type {
   MigrationPreview,
   MigrationProgress,
   MigrationResult,
+  SystemHealth,
   TagItem,
 } from "./settingsModel";
 import { AiSettingsSection } from "./AiSettingsSection";
 import { DataMaintenanceSection } from "./DataMaintenanceSection";
 import { MigrationSection } from "./MigrationSection";
+import { SystemHealthSection } from "./SystemHealthSection";
 import { TagManagementSection } from "./TagManagementSection";
 
 interface DataSettingsTabProps {
@@ -33,6 +35,9 @@ interface DataSettingsTabProps {
   tagFrom: string;
   tagTo: string;
   tagSaving: boolean;
+  systemHealth: SystemHealth | null;
+  healthLoading: boolean;
+  rebuildingIndex: boolean;
   migrationProgressVisible: boolean;
   migrationKnownTotal: number;
   migrationProgressPercent: number | null;
@@ -43,6 +48,8 @@ interface DataSettingsTabProps {
   onCreateBackup: () => void;
   onPreviewBackup: (backup: BackupItem) => void;
   onRestoreBackup: () => void;
+  onRefreshHealth: () => void;
+  onRebuildMemoIndex: () => void;
   onAiBaseUrlChange: (value: string) => void;
   onAiModelChange: (value: string) => void;
   onAiApiKeyChange: (value: string) => void;
@@ -80,6 +87,9 @@ export function DataSettingsTab({
   tagFrom,
   tagTo,
   tagSaving,
+  systemHealth,
+  healthLoading,
+  rebuildingIndex,
   migrationProgressVisible,
   migrationKnownTotal,
   migrationProgressPercent,
@@ -90,6 +100,8 @@ export function DataSettingsTab({
   onCreateBackup,
   onPreviewBackup,
   onRestoreBackup,
+  onRefreshHealth,
+  onRebuildMemoIndex,
   onAiBaseUrlChange,
   onAiModelChange,
   onAiApiKeyChange,
@@ -106,6 +118,14 @@ export function DataSettingsTab({
 }: DataSettingsTabProps) {
   return (
     <>
+      <SystemHealthSection
+        health={systemHealth}
+        healthLoading={healthLoading}
+        rebuildingIndex={rebuildingIndex}
+        onRefreshHealth={onRefreshHealth}
+        onRebuildMemoIndex={onRebuildMemoIndex}
+      />
+
       <DataMaintenanceSection
         backups={backups}
         backupCreating={backupCreating}

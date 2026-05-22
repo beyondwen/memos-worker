@@ -1,11 +1,13 @@
 import type { CurrentUser } from "../App";
 import { PERSONAL_MODE_FEATURES } from "../personalMode";
-import type { UserStats } from "./settingsModel";
+import type { UserSession, UserStats } from "./settingsModel";
 
 interface AccountSettingsTabProps {
   currentUser: CurrentUser;
   instanceName: string;
   stats: UserStats | null;
+  sessions: UserSession[];
+  revokingSessionId: string;
   nickname: string;
   email: string;
   description: string;
@@ -25,12 +27,15 @@ interface AccountSettingsTabProps {
   onNewPasswordChange: (value: string) => void;
   onProfileSave: (event: Event) => void;
   onPasswordChange: (event: Event) => void;
+  onRevokeSession: (session: UserSession) => void;
 }
 
 export function AccountSettingsTab({
   currentUser,
   instanceName,
   stats,
+  sessions,
+  revokingSessionId,
   nickname,
   email,
   description,
@@ -50,6 +55,7 @@ export function AccountSettingsTab({
   onNewPasswordChange,
   onProfileSave,
   onPasswordChange,
+  onRevokeSession,
 }: AccountSettingsTabProps) {
   return (
     <>
@@ -166,6 +172,35 @@ export function AccountSettingsTab({
             {pwSaving ? "修改中..." : "修改密码"}
           </button>
         </form>
+      </div>
+
+      <div class="settings-section">
+        <h2>登录会话</h2>
+        <div class="settings-record-list">
+          {sessions.map((session) => (
+            <div key={session.id} class="settings-record-row">
+              <div class="settings-record-main">
+                <span class="settings-record-title">
+                  {session.current ? "当前会话" : "其他会话"}
+                  {session.rowStatus !== "NORMAL" ? ` · ${session.rowStatus}` : ""}
+                </span>
+                <span class="settings-record-meta">
+                  {session.userAgent || "未知设备"} · 最近 {new Date((session.lastUsedTs || session.updatedTs || session.createdTs) * 1000).toLocaleString("zh-CN")}
+                </span>
+              </div>
+              <div class="settings-record-actions">
+                <button
+                  class="btn btn-danger-soft btn-sm"
+                  onClick={() => onRevokeSession(session)}
+                  disabled={revokingSessionId === session.id || session.rowStatus !== "NORMAL"}
+                >
+                  {revokingSessionId === session.id ? "撤销中..." : "撤销"}
+                </button>
+              </div>
+            </div>
+          ))}
+          {sessions.length === 0 && <div class="muted-line">暂无会话。</div>}
+        </div>
       </div>
     </>
   );

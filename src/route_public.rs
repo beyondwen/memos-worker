@@ -22,7 +22,7 @@ pub(crate) async fn public_route(
         return refresh_session(req, env).await.map(Some);
     }
     if path == "/api/v1/auth/signout" && matches!(method, &Method::Post) {
-        return sign_out().map(Some);
+        return sign_out(req, env).await.map(Some);
     }
     if path == "/api/v1/explore/rss.xml" && matches!(method, &Method::Get) {
         return generate_rss(env, None).await.map(Some);

@@ -10,6 +10,8 @@ export function loadConfig(env = process.env) {
   const password = env.MEMOS_E2E_PASSWORD || "";
   const keepData = env.MEMOS_E2E_KEEP_DATA === "1" || env.MEMOS_E2E_KEEP_DATA === "true";
   const signup = env.MEMOS_E2E_SIGNUP === "1" || env.MEMOS_E2E_SIGNUP === "true";
+  const security = env.MEMOS_E2E_SECURITY === "1" || env.MEMOS_E2E_SECURITY === "true";
+  const maintenance = env.MEMOS_E2E_MAINTENANCE === "1" || env.MEMOS_E2E_MAINTENANCE === "true";
   const cleanupUser = env.MEMOS_E2E_CLEANUP_USER === "1" || env.MEMOS_E2E_CLEANUP_USER === "true";
   const adminUsername = env.MEMOS_E2E_ADMIN_USERNAME || "";
   const adminPassword = env.MEMOS_E2E_ADMIN_PASSWORD || "";
@@ -20,6 +22,8 @@ export function loadConfig(env = process.env) {
     password,
     keepData,
     signup,
+    security,
+    maintenance,
     cleanupUser,
     adminUsername,
     adminPassword,
@@ -95,6 +99,12 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
       await client.signUp();
     }
     await client.signIn();
+    if (config.security) {
+      await client.assertSecurityDefaults();
+    }
+    if (config.maintenance) {
+      await client.assertMaintenanceDefaults();
+    }
 
     primaryMemo = await client.createMemo(`e2e primary ${Date.now()}`);
     created.push(primaryMemo.uid);
@@ -128,6 +138,8 @@ export async function runSmoke(config = loadConfig(), fetchImpl = globalThis.fet
       ok: true,
       memoUids: created,
       sseEvents: sseEvents.map((event) => event.event).filter(Boolean),
+      securityChecked: config.security,
+      maintenanceChecked: config.maintenance,
     };
   } finally {
     if (!config.keepData && client.token) {
@@ -164,11 +176,12 @@ async function cleanupUser(config, fetchImpl) {
   await adminClient.deleteUser(config.username);
 }
 
-class SmokeClient {
+export class SmokeClient {
   constructor(config, fetchImpl) {
     this.config = config;
     this.fetch = fetchImpl;
     this.token = "";
+    this.cookies = new Map();
   }
 
   async signIn() {
@@ -178,6 +191,49 @@ class SmokeClient {
     });
     assert(body.accessToken, "signin did not return accessToken");
     this.token = body.accessToken;
+  }
+
+  async assertSecurityDefaults() {
+    if (!this.config.signup) {
+      await this.expectFailure("/api/v1/auth/signup", {
+        method: "POST",
+        body: {
+          username: `blocked_${Date.now()}`,
+          password: this.config.password,
+        },
+      }, 403);
+    }
+    await this.expectFailure("/api/v1/memos", {
+      method: "POST",
+      headers: { Cookie: this.cookieHeader() },
+      body: { content: "csrf should fail" },
+    }, 403);
+    const bearerMemo = await this.createMemo(`e2e bearer csrf bypass ${Date.now()}`);
+    await this.purgeMemo(bearerMemo.uid);
+    await this.request("/api/v1/auth/signout", {
+      method: "POST",
+      headers: this.csrfCookieHeaders(),
+    });
+    await this.expectFailure("/api/v1/auth/user", {
+      headers: { Authorization: `Bearer ${this.token}` },
+    }, 401);
+    await this.signIn();
+  }
+
+  async assertMaintenanceDefaults() {
+    const health = await this.authed("/api/v1/system/health");
+    assert(["healthy", "degraded"].includes(health.status), "health endpoint did not return status");
+    assert(health.memoIndex && typeof health.memoIndex.memoCount === "number", "health endpoint did not return memo index status");
+    const rebuilt = await this.authed("/api/v1/memo-index/rebuild", { method: "POST" });
+    assert(typeof rebuilt.rebuilt === "number", "memo index rebuild did not return rebuilt count");
+    assert(rebuilt.memoIndex?.healthy === true, "memo index rebuild did not leave index healthy");
+    const backup = await this.authed("/api/v1/backups", { method: "POST" });
+    assert(backup.backup?.key, "backup create did not return key");
+    const preview = await this.authed("/api/v1/backups/preview", {
+      method: "POST",
+      body: { key: backup.backup.key },
+    });
+    assert(typeof preview.preview?.memoCount === "number", "backup preview did not return memo count");
   }
 
   async signUp() {
@@ -247,7 +303,7 @@ class SmokeClient {
   }
 
   async fetchSseEvents() {
-    const body = await this.request(`/api/v1/sse?access_token=${encodeURIComponent(this.token)}`, {
+    const body = await this.request("/api/v1/sse", {
       headers: { Authorization: `Bearer ${this.token}` },
     }, "text");
     return parseSseEvents(body);
@@ -262,15 +318,38 @@ class SmokeClient {
   async authed(path, options = {}) {
     return this.request(path, {
       ...options,
-      headers: { ...authHeaders(this.token), ...(options.headers || {}) },
+      headers: { ...this.csrfCookieHeaders(), ...authHeaders(this.token), ...(options.headers || {}) },
     });
   }
 
   async request(path, options = {}, responseType = "json") {
+    const response = await this.requestRaw(path, options);
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(`${options.method || "GET"} ${path} failed: ${response.status} ${text}`);
+    }
+    if (responseType === "text") return text;
+    const payload = text ? JSON.parse(text) : {};
+    return payload;
+  }
+
+  async expectFailure(path, options = {}, status) {
+    const response = await this.requestRaw(path, options);
+    const text = await response.text();
+    assert(
+      response.status === status,
+      `${options.method || "GET"} ${path} expected ${status}, got ${response.status}: ${text}`,
+    );
+  }
+
+  async requestRaw(path, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
     try {
       const headers = new Headers(options.headers || {});
+      if (!headers.has("Cookie") && this.cookies.size > 0) {
+        headers.set("Cookie", this.cookieHeader());
+      }
       let body = options.body;
       if (body && typeof body !== "string") {
         body = JSON.stringify(body);
@@ -282,16 +361,37 @@ class SmokeClient {
         body,
         signal: controller.signal,
       });
-      const text = await response.text();
-      if (!response.ok) {
-        throw new Error(`${options.method || "GET"} ${path} failed: ${response.status} ${text}`);
-      }
-      if (responseType === "text") return text;
-      const payload = text ? JSON.parse(text) : {};
-      return payload;
+      this.storeCookies(response.headers);
+      return response;
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  storeCookies(headers) {
+    const values = typeof headers.getSetCookie === "function"
+      ? headers.getSetCookie()
+      : [headers.get("set-cookie")].filter(Boolean);
+    for (const value of values) {
+      const [pair] = value.split(";");
+      const index = pair.indexOf("=");
+      if (index <= 0) continue;
+      const name = pair.slice(0, index);
+      const cookieValue = pair.slice(index + 1);
+      if (cookieValue) this.cookies.set(name, cookieValue);
+      else this.cookies.delete(name);
+    }
+  }
+
+  cookieHeader() {
+    return [...this.cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+  }
+
+  csrfCookieHeaders() {
+    const headers = { Cookie: this.cookieHeader() };
+    const csrf = this.cookies.get("memos_csrf");
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    return headers;
   }
 }
 

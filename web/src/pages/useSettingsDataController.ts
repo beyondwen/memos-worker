@@ -8,6 +8,7 @@ import type {
   MigrationPreview,
   MigrationProgress,
   MigrationResult,
+  SystemHealth,
   TagItem,
 } from "./settingsModel";
 import { runMigrationStream } from "./settingsMigration";
@@ -59,6 +60,9 @@ export function useSettingsDataController({
   const [tagFrom, setTagFrom] = useState("");
   const [tagTo, setTagTo] = useState("");
   const [tagSaving, setTagSaving] = useState(false);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [rebuildingIndex, setRebuildingIndex] = useState(false);
 
   const fetchBackups = useCallback(async () => {
     if (!currentUser || currentUser.role !== "ADMIN") return;
@@ -93,11 +97,25 @@ export function useSettingsDataController({
     }
   }, [currentUser]);
 
+  const fetchSystemHealth = useCallback(async () => {
+    if (!currentUser || currentUser.role !== "ADMIN") return;
+    setHealthLoading(true);
+    try {
+      const data = await api<SystemHealth>("/api/v1/system/health");
+      setSystemHealth(data);
+    } catch (err) {
+      reportSettingsLoadError("系统健康", err, notify);
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [currentUser, notify]);
+
   useEffect(() => {
     fetchBackups();
     fetchAiSettings();
     fetchTags();
-  }, [fetchAiSettings, fetchBackups, fetchTags]);
+    fetchSystemHealth();
+  }, [fetchAiSettings, fetchBackups, fetchSystemHealth, fetchTags]);
 
   const handleExport = async () => {
     try {
@@ -250,9 +268,10 @@ export function useSettingsDataController({
   const handleCreateBackup = async () => {
     setBackupCreating(true);
     try {
-      const data = await api<{ backup: { key: string; size: number } }>("/api/v1/backups", { method: "POST" });
+      const data = await api<{ backup: { key: string; size: number; encrypted: boolean; keyId?: string | null } }>("/api/v1/backups", { method: "POST" });
       await fetchBackups();
-      notify(`备份已创建：${data.backup.key}`, "success");
+      await fetchSystemHealth();
+      notify(`备份已创建：${data.backup.key}${data.backup.encrypted ? "（已加密）" : ""}`, "success");
     } catch (err) {
       notify(`创建备份失败：${(err as Error).message}`, "error");
     } finally {
@@ -283,16 +302,39 @@ export function useSettingsDataController({
     });
     if (!ok) return;
     try {
-      await api("/api/v1/backups/restore", {
+      const data = await api<{ restorePoint?: { backup?: { key?: string } } }>("/api/v1/backups/restore", {
         method: "POST",
         body: JSON.stringify({ key: restoringBackupKey }),
       });
       setBackupPreview(null);
       setRestoringBackupKey("");
+      await fetchSystemHealth();
       await refreshAuditLogs();
-      notify("备份已恢复", "success");
+      notify(`备份已恢复${data.restorePoint?.backup?.key ? `，已创建恢复点 ${data.restorePoint.backup.key}` : ""}`, "success");
     } catch (err) {
       notify(`恢复备份失败：${(err as Error).message}`, "error");
+    }
+  };
+
+  const handleRebuildMemoIndex = async () => {
+    const ok = await confirm({
+      title: "重建 Memo 索引？",
+      message: "会重新生成搜索和标签索引，不会修改备忘录内容。",
+      confirmText: "重建索引",
+    });
+    if (!ok) return;
+    setRebuildingIndex(true);
+    try {
+      const data = await api<{ rebuilt: number; memoIndex: SystemHealth["memoIndex"] }>("/api/v1/memo-index/rebuild", { method: "POST" });
+      setSystemHealth((previous) => previous ? { ...previous, memoIndex: data.memoIndex, status: data.memoIndex.healthy ? "healthy" : "degraded" } : previous);
+      await fetchSystemHealth();
+      await fetchTags();
+      await refreshAuditLogs();
+      notify(`已重建 ${data.rebuilt} 条 Memo 索引`, "success");
+    } catch (err) {
+      notify(`重建索引失败：${(err as Error).message}`, "error");
+    } finally {
+      setRebuildingIndex(false);
     }
   };
 
@@ -348,6 +390,9 @@ export function useSettingsDataController({
     tagFrom,
     tagTo,
     tagSaving,
+    systemHealth,
+    healthLoading,
+    rebuildingIndex,
     migrationProgressVisible: migrationProgressView.visible,
     migrationKnownTotal: migrationProgressView.knownTotal,
     migrationProgressPercent: migrationProgressView.percent,
@@ -358,6 +403,8 @@ export function useSettingsDataController({
     onCreateBackup: handleCreateBackup,
     onPreviewBackup: handlePreviewBackup,
     onRestoreBackup: handleRestoreBackup,
+    onRefreshHealth: fetchSystemHealth,
+    onRebuildMemoIndex: handleRebuildMemoIndex,
     onAiBaseUrlChange: setAiBaseUrl,
     onAiModelChange: setAiModel,
     onAiApiKeyChange: setAiApiKey,

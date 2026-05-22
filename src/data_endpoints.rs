@@ -89,7 +89,7 @@ pub(crate) async fn import_data(
                 .unwrap_or_else(|| build_memo_payload(content));
             db(env)?.prepare("INSERT OR IGNORE INTO memo (uid, creator_id, created_ts, updated_ts, row_status, content, visibility, pinned, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
                 .bind(&[
-                    uid.into(),
+                    uid.clone().into(),
                     js_num(viewer.id),
                     js_num(created_ts),
                     js_num(updated_ts),
@@ -101,6 +101,9 @@ pub(crate) async fn import_data(
                 ])?
                 .run()
                 .await?;
+            if let Some(inserted) = get_memo_by_uid(env, &uid).await? {
+                sync_memo_index(env, &inserted).await?;
+            }
             imported += 1;
         }
     }

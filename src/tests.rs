@@ -5,11 +5,13 @@ fn backup_artifact_api_payload_includes_key_and_size() {
     let artifact = BackupArtifact {
         key: "backups/memos-test.json".to_string(),
         size: 42,
+        encrypted: true,
+        key_id: Some("k1".to_string()),
     };
 
     assert_eq!(
         backup_artifact_payload(&artifact),
-        json!({ "backup": { "key": "backups/memos-test.json", "size": 42 } })
+        json!({ "backup": { "key": "backups/memos-test.json", "size": 42, "encrypted": true, "keyId": "k1" } })
     );
 }
 
@@ -100,6 +102,63 @@ fn personal_cleanup_migration_drops_removed_feature_tables() {
     ] {
         assert!(migration.contains(&format!("DROP TABLE IF EXISTS {}", table)));
     }
+}
+
+#[test]
+fn security_and_index_migration_creates_rate_limit_and_memo_index_tables() {
+    let migration = std::fs::read_to_string("migrations/0007_security_and_indexes.sql")
+        .expect("security/index migration");
+
+    assert!(migration.contains("CREATE TABLE IF NOT EXISTS auth_rate_limit"));
+    assert!(migration.contains("CREATE TABLE IF NOT EXISTS memo_search"));
+    assert!(migration.contains("CREATE TABLE IF NOT EXISTS memo_tag"));
+    assert!(migration.contains("INSERT OR REPLACE INTO memo_search"));
+    assert!(migration.contains("json_valid(memo.payload)"));
+    assert!(migration.contains("TRIM(json_each.value)"));
+}
+
+#[test]
+fn backup_encryption_keyring_parses_json_and_comma_formats() {
+    let json_keys = parse_backup_encryption_keys(r#"{"old":"secret-old","new":"secret-new"}"#);
+    assert!(json_keys.contains(&BackupEncryptionKey {
+        id: "old".to_string(),
+        secret: "secret-old".to_string(),
+    }));
+    assert!(json_keys.contains(&BackupEncryptionKey {
+        id: "new".to_string(),
+        secret: "secret-new".to_string(),
+    }));
+    assert_eq!(
+        parse_backup_encryption_keys("old=secret-old, new = secret-new"),
+        vec![
+            BackupEncryptionKey {
+                id: "old".to_string(),
+                secret: "secret-old".to_string(),
+            },
+            BackupEncryptionKey {
+                id: "new".to_string(),
+                secret: "secret-new".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn backup_payload_validation_requires_core_arrays_and_ids() {
+    let payload = json!({
+        "users": [],
+        "memos": [{
+            "id": 1,
+            "uid": "m_1",
+            "creator_id": 1,
+            "created_ts": 1,
+            "updated_ts": 1
+        }],
+        "attachments": [],
+        "relations": []
+    });
+    assert!(validate_backup_payload(&payload).is_ok());
+    assert!(validate_backup_payload(&json!({ "memos": [] })).is_err());
 }
 
 #[test]
@@ -207,6 +266,120 @@ fn api_worker_only_handles_backend_paths() {
     assert!(!is_backend_request_path("/"));
     assert!(!is_backend_request_path("/assets/index.js"));
     assert!(!is_backend_request_path("/memos/m_1"));
+}
+
+#[test]
+fn public_signup_is_disabled_unless_env_is_truthy() {
+    assert!(!is_truthy_env(None));
+    assert!(!is_truthy_env(Some("false")));
+    assert!(!is_truthy_env(Some("0")));
+    assert!(is_truthy_env(Some("true")));
+    assert!(is_truthy_env(Some("1")));
+    assert!(is_truthy_env(Some(" yes ")));
+}
+
+#[test]
+fn cors_allows_same_origin_or_configured_origins() {
+    assert_eq!(
+        allowed_cors_origin(
+            Some("https://notes.example.com"),
+            Some("https://notes.example.com"),
+            None,
+        ),
+        Some("https://notes.example.com".to_string())
+    );
+    assert_eq!(
+        allowed_cors_origin(
+            Some("https://app.example.com"),
+            Some("https://api.example.com"),
+            Some("https://notes.example.com, https://app.example.com"),
+        ),
+        Some("https://app.example.com".to_string())
+    );
+    assert_eq!(
+        allowed_cors_origin(
+            Some("https://evil.example.com"),
+            Some("https://api.example.com"),
+            Some("https://notes.example.com"),
+        ),
+        None
+    );
+}
+
+#[test]
+fn csrf_is_required_for_cookie_authenticated_writes_only() {
+    assert!(!csrf_required_for_request(&Method::Get, "memos_access=a"));
+    assert!(!csrf_required_for_request(&Method::Post, ""));
+    assert!(!csrf_required_for_request(&Method::Post, "other=value"));
+    assert!(csrf_required_for_request(&Method::Post, "memos_access=a"));
+    assert!(csrf_required_for_request(
+        &Method::Delete,
+        "memos_refresh=r"
+    ));
+}
+
+#[test]
+fn csrf_tokens_must_be_present_and_equal() {
+    assert!(csrf_tokens_match(Some("csrf_abc"), Some("csrf_abc")));
+    assert!(csrf_tokens_match(Some(" csrf_abc "), Some("csrf_abc")));
+    assert!(!csrf_tokens_match(Some("csrf_abc"), Some("csrf_other")));
+    assert!(!csrf_tokens_match(None, Some("csrf_abc")));
+    assert!(!csrf_tokens_match(Some("csrf_abc"), None));
+}
+
+#[test]
+fn security_policy_disallows_embeds_and_external_scripts() {
+    let policy = security_content_policy();
+
+    assert!(policy.contains("script-src 'self'"));
+    assert!(policy.contains("object-src 'none'"));
+    assert!(policy.contains("frame-ancestors 'none'"));
+}
+
+#[test]
+fn auth_record_retention_cutoff_uses_whole_days() {
+    assert_eq!(auth_record_retention_cutoff(1_000_000, 30), -1_592_000);
+    assert_eq!(auth_record_retention_cutoff(1_000_000, -1), 1_000_000);
+}
+
+#[test]
+fn memo_page_tokens_round_trip_cursor_fields() {
+    let memo = sample_memo();
+    let token = build_memo_page_token(&memo);
+
+    assert_eq!(
+        parse_memo_page_token(&token),
+        Some(MemoPageCursor {
+            pinned: memo.pinned,
+            created_ts: memo.created_ts,
+            id: memo.id,
+        })
+    );
+    assert_eq!(parse_memo_page_token("offset-20"), None);
+}
+
+#[test]
+fn memo_tags_from_payload_normalizes_unique_tags() {
+    assert_eq!(
+        memo_tags_from_payload(r##"{"tags":["work"," work ","","life","work"]}"##),
+        vec!["work".to_string(), "life".to_string()]
+    );
+}
+
+#[test]
+fn memo_index_health_json_marks_drift() {
+    let health = MemoIndexHealth {
+        memo_count: 2,
+        search_count: 1,
+        missing_search_count: 1,
+        orphan_search_count: 0,
+        tag_count: 3,
+        orphan_tag_count: 0,
+        healthy: false,
+    };
+
+    assert_eq!(health.to_json()["healthy"], false);
+    assert_eq!(health.to_json()["missingSearchCount"], 1);
 }
 
 #[test]

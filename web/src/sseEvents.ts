@@ -1,3 +1,5 @@
+import { buildApiUrl } from "./api";
+
 export interface MemoSseEvent {
   type: string;
   name?: string;
@@ -22,7 +24,7 @@ export function shouldRefreshForSseEvent(event: unknown): event is MemoSseEvent 
     && REFRESH_EVENT_TYPES.has(candidate.type);
 }
 
-export function createMemoEventSource(token: string): EventSource | null {
-  if (!token || typeof EventSource === "undefined") return null;
-  return new EventSource(`/api/v1/sse?access_token=${encodeURIComponent(token)}`);
+export function createMemoEventSource(): EventSource | null {
+  if (typeof EventSource === "undefined") return null;
+  return new EventSource(buildApiUrl("/api/v1/sse"), { withCredentials: true });
 }

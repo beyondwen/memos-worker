@@ -20,6 +20,13 @@ pub(crate) async fn authed_route(
     if path == "/api/v1/auth/change-password" && method == Method::Post {
         return change_password(req, env, &viewer).await;
     }
+    if path == "/api/v1/auth/sessions" && method == Method::Get {
+        return list_sessions(req, env, &viewer).await;
+    }
+    if path.starts_with("/api/v1/auth/sessions/") && method == Method::Delete {
+        let session_id = path.trim_start_matches("/api/v1/auth/sessions/");
+        return revoke_session_route(env, &viewer, session_id).await;
+    }
     if path == "/api/v1/users" && method == Method::Get {
         return list_users(env, &viewer).await;
     }
@@ -88,6 +95,12 @@ pub(crate) async fn authed_route(
     }
     if path == "/api/v1/backups/restore" && method == Method::Post {
         return restore_backup(req, env, &viewer).await;
+    }
+    if path == "/api/v1/system/health" && method == Method::Get {
+        return system_health(env, &viewer).await;
+    }
+    if path == "/api/v1/memo-index/rebuild" && method == Method::Post {
+        return rebuild_memo_index_route(env, &viewer).await;
     }
     if path == "/api/v1/ai/settings" && method == Method::Get {
         return get_ai_settings(env, &viewer).await;

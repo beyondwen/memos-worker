@@ -169,6 +169,8 @@ pub(crate) fn audit_action_label(action: &str) -> &str {
         "attachment.delete" => "删除附件",
         "backup.create" => "创建备份",
         "backup.restore" => "恢复备份",
+        "backup.restore_failed" => "恢复备份失败",
+        "memo_index.rebuild" => "重建 Memo 索引",
         "migration.usememos.start" => "开始迁移原版 Memos",
         "migration.usememos.import" => "迁移原版 Memos",
         "migration.usememos.error" => "迁移原版 Memos 失败",

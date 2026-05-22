@@ -16,12 +16,15 @@ type HmacSha256 = Hmac<Sha256>;
 
 const ACCESS_COOKIE: &str = "memos_access";
 const REFRESH_COOKIE: &str = "memos_refresh";
+const CSRF_COOKIE: &str = "memos_csrf";
+const CSRF_HEADER: &str = "X-CSRF-Token";
 const ACCESS_TTL: i64 = 15 * 60;
 const REFRESH_TTL: i64 = 30 * 24 * 60 * 60;
 const MIGRATION_PAGE_SIZE: usize = 100;
 const MIGRATION_MAX_MEMOS: usize = 10000;
 const SQL_IN_CHUNK_SIZE: usize = 50;
 const MEMO_EVENT_RETENTION_DAYS: i64 = 7;
+const AUTH_RECORD_RETENTION_DAYS: i64 = 30;
 
 mod models;
 pub(crate) use models::*;
@@ -51,6 +54,8 @@ mod sse;
 pub(crate) use sse::*;
 mod memo_events;
 pub(crate) use memo_events::*;
+mod memo_index;
+pub(crate) use memo_index::*;
 mod migration_audit;
 pub(crate) use migration_audit::*;
 mod ai_settings;
@@ -61,6 +66,8 @@ mod backup_restore;
 pub(crate) use backup_restore::*;
 mod backups;
 pub(crate) use backups::*;
+mod system_health;
+pub(crate) use system_health::*;
 mod audit_logs;
 pub(crate) use audit_logs::*;
 mod attachment_support;
@@ -98,10 +105,13 @@ pub(crate) use support::*;
 
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    match route(&mut req, &env).await {
-        Ok(response) => Ok(response),
-        Err(error) => json_response(json!({ "error": error.message }), error.status),
-    }
+    let mut response = match route(&mut req, &env).await {
+        Ok(response) => response,
+        Err(error) => json_response(json!({ "error": error.message }), error.status)?,
+    };
+    apply_cors(&mut response, &req, &env)?;
+    apply_security_headers(&mut response)?;
+    Ok(response)
 }
 
 #[event(scheduled)]
@@ -113,6 +123,10 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     match prune_memo_events(&env, MEMO_EVENT_RETENTION_DAYS).await {
         Ok(deleted) => console_log!("memo event prune completed: {}", deleted),
         Err(error) => console_log!("memo event prune failed: {}", error.message),
+    }
+    match prune_auth_records(&env, AUTH_RECORD_RETENTION_DAYS).await {
+        Ok(deleted) => console_log!("auth record prune completed: {}", deleted),
+        Err(error) => console_log!("auth record prune failed: {}", error.message),
     }
 }
 

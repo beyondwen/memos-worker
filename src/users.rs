@@ -59,7 +59,8 @@ pub(crate) async fn change_password(
         ])?
         .run()
         .await?;
-    sign_out()
+    revoke_user_sessions(env, viewer.id).await?;
+    sign_out(req, env).await
 }
 
 pub(crate) async fn list_users(

@@ -14,6 +14,7 @@ pub(crate) async fn route(req: &mut Request, env: &Env) -> std::result::Result<R
     }
 
     if is_backend_request_path(&path) {
+        validate_csrf(req, &method)?;
         let viewer = current_viewer(req, env).await?;
         return authed_route(req, env, &url, &path, method, viewer).await;
     }

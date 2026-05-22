@@ -1,22 +1,5 @@
 use super::*;
 
-pub(crate) async fn get_recent_memos(
-    env: &Env,
-    viewer: &Viewer,
-    limit: i64,
-) -> std::result::Result<Vec<DbMemo>, AppError> {
-    let rows = if viewer.role == "ADMIN" {
-        db(env)?.prepare("SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id ORDER BY memo.created_ts DESC LIMIT ?")
-            .bind(&[js_num(limit)])?
-            .all().await?
-    } else {
-        db(env)?.prepare("SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE memo.visibility != 'PRIVATE' OR memo.creator_id = ? ORDER BY memo.created_ts DESC LIMIT ?")
-            .bind(&[js_num(viewer.id), js_num(limit)])?
-            .all().await?
-    };
-    Ok(rows.results()?)
-}
-
 pub(crate) async fn get_memos_by_uids(
     env: &Env,
     viewer: &Viewer,
@@ -81,6 +64,7 @@ pub(crate) async fn purge_ids(env: &Env, ids: &[i64]) -> std::result::Result<(),
     if ids.is_empty() {
         return Ok(());
     }
+    delete_memo_indexes(env, ids).await?;
     let placeholders = placeholders(ids.len());
     let values: Vec<JsValue> = ids.iter().map(|id| js_num(*id)).collect();
     db(env)?

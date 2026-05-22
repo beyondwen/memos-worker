@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
-import { api, getToken } from "../api";
+import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
 import { RelationPanel } from "../components/RelationPanel";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
@@ -60,7 +60,7 @@ export function MemoDetailPage({ uid, currentUser }: MemoDetailPageProps) {
 
   useEffect(() => {
     if (!currentUser || !uid) return;
-    const source = createMemoEventSource(getToken());
+    const source = createMemoEventSource();
     if (!source) return;
     const refresh = (message: MessageEvent) => {
       try {

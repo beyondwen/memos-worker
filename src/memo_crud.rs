@@ -6,17 +6,13 @@ pub(crate) async fn list_memos(
     viewer: &Viewer,
 ) -> std::result::Result<Response, AppError> {
     let db = db(env)?;
+    ensure_memo_index_tables(env).await?;
     let limit = url
         .query_pairs()
         .find(|(key, _)| key == "page_size" || key == "pageSize")
         .and_then(|(_, value)| value.parse::<i64>().ok())
         .unwrap_or(20)
         .clamp(1, 200);
-    let offset = query_param(url, "page_token")
-        .or_else(|| query_param(url, "pageToken"))
-        .and_then(|value| value.parse::<i64>().ok())
-        .unwrap_or(0)
-        .max(0);
     let state = query_param(url, "state")
         .or_else(|| extract_filter_value(url, "rowStatus"))
         .or_else(|| extract_filter_value(url, "row_status"))
@@ -36,20 +32,31 @@ pub(crate) async fn list_memos(
     }
     if let Some(tag) = query_param(url, "tag").filter(|value| !value.trim().is_empty()) {
         where_sql.push(
-            "EXISTS (SELECT 1 FROM json_each(memo.payload, '$.tags') WHERE value = ?)".to_string(),
+            "EXISTS (SELECT 1 FROM memo_tag WHERE memo_tag.memo_id = memo.id AND memo_tag.tag = ?)"
+                .to_string(),
         );
         values.push(tag.into());
     }
     if let Some(search) =
         extract_content_contains_filter(url).filter(|value| !value.trim().is_empty())
     {
-        where_sql.push("memo.content LIKE ? ESCAPE '\\'".to_string());
+        where_sql.push("EXISTS (SELECT 1 FROM memo_search WHERE memo_search.memo_id = memo.id AND memo_search.content LIKE ? ESCAPE '\\')".to_string());
         values.push(format!("%{}%", escape_like(&search)).into());
     }
+    if let Some(cursor) = memo_page_cursor(url) {
+        where_sql.push("(memo.pinned < ? OR (memo.pinned = ? AND memo.created_ts < ?) OR (memo.pinned = ? AND memo.created_ts = ? AND memo.id < ?))".to_string());
+        values.extend([
+            js_num(cursor.pinned),
+            js_num(cursor.pinned),
+            js_num(cursor.created_ts),
+            js_num(cursor.pinned),
+            js_num(cursor.created_ts),
+            js_num(cursor.id),
+        ]);
+    }
     values.push(js_num(limit + 1));
-    values.push(js_num(offset));
     let rows = db.prepare(format!(
-        "SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE {} ORDER BY memo.pinned DESC, memo.created_ts DESC, memo.id DESC LIMIT ? OFFSET ?",
+        "SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE {} ORDER BY memo.pinned DESC, memo.created_ts DESC, memo.id DESC LIMIT ?",
         where_sql.join(" AND ")
     ))
         .bind(&values)?
@@ -60,17 +67,48 @@ pub(crate) async fn list_memos(
     let page_memos: Vec<DbMemo> = memos.into_iter().take(limit as usize).collect();
     let memo_ids: Vec<i64> = page_memos.iter().map(|memo| memo.id).collect();
     let attachments = list_attachments_for_memos(env, &memo_ids).await?;
-    let public = public_memos_with_attachments(page_memos, attachments);
     let next_page_token = if has_more {
-        (offset + limit).to_string()
+        page_memos
+            .last()
+            .map(build_memo_page_token)
+            .unwrap_or_default()
     } else {
         String::new()
     };
+    let public = public_memos_with_attachments(page_memos, attachments);
     json_response(
         json!({ "memos": public, "nextPageToken": next_page_token }),
         200,
     )
     .map_err(AppError::from)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MemoPageCursor {
+    pub(crate) pinned: i64,
+    pub(crate) created_ts: i64,
+    pub(crate) id: i64,
+}
+
+pub(crate) fn memo_page_cursor(url: &Url) -> Option<MemoPageCursor> {
+    let token = query_param(url, "page_token").or_else(|| query_param(url, "pageToken"))?;
+    parse_memo_page_token(&token)
+}
+
+pub(crate) fn parse_memo_page_token(token: &str) -> Option<MemoPageCursor> {
+    let parts: Vec<&str> = token.split(':').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    Some(MemoPageCursor {
+        pinned: parts[0].parse::<i64>().ok()?.clamp(0, 1),
+        created_ts: parts[1].parse::<i64>().ok()?,
+        id: parts[2].parse::<i64>().ok()?,
+    })
+}
+
+pub(crate) fn build_memo_page_token(memo: &DbMemo) -> String {
+    format!("{}:{}:{}", memo.pinned, memo.created_ts, memo.id)
 }
 
 pub(crate) async fn create_memo(
@@ -106,6 +144,7 @@ pub(crate) async fn create_memo(
     let memo = get_memo_by_uid(env, &uid)
         .await?
         .ok_or_else(|| AppError::new(500, "Failed to create memo"))?;
+    sync_memo_index(env, &memo).await?;
     emit_memo_event(env, "memo.created", &memo).await;
     let memo = memo_with_attachments(env, memo).await?;
     json_response(json!({ "memo": memo }), 201).map_err(AppError::from)
@@ -235,6 +274,7 @@ pub(crate) async fn update_memo(
     let updated = get_memo_by_uid(env, uid)
         .await?
         .ok_or_else(|| AppError::new(500, "Memo disappeared"))?;
+    sync_memo_index(env, &updated).await?;
     let event_type = if memo.row_status != updated.row_status {
         if updated.row_status == "ARCHIVED" {
             "memo.archived"

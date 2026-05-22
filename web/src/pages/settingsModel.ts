@@ -12,10 +12,23 @@ export interface UserStats {
   attachmentCount: number;
 }
 
+export interface UserSession {
+  id: string;
+  createdTs: number;
+  updatedTs: number;
+  lastUsedTs?: number | null;
+  expiresTs: number;
+  userAgent: string;
+  rowStatus: string;
+  current: boolean;
+}
+
 export interface BackupItem {
   key: string;
   size: number;
   uploaded: string;
+  encrypted?: boolean;
+  keyId?: string | null;
 }
 
 export interface BackupPreview {
@@ -53,6 +66,34 @@ export interface AiSettings {
 export interface TagItem {
   name: string;
   count: number;
+}
+
+export interface SystemHealth {
+  status: "healthy" | "degraded";
+  checkedTs: number;
+  memoIndex: {
+    memoCount: number;
+    searchCount: number;
+    missingSearchCount: number;
+    orphanSearchCount: number;
+    tagCount: number;
+    orphanTagCount: number;
+    healthy: boolean;
+  };
+  backup: {
+    r2Available: boolean;
+    count: number;
+    latest?: {
+      key: string;
+      size: number;
+      uploaded: string;
+    } | null;
+    encryption: {
+      configured: boolean;
+      currentKeyId?: string | null;
+      knownKeyIds: string[];
+    };
+  };
 }
 
 export interface AuditLog {

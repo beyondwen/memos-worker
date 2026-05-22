@@ -13,7 +13,7 @@ pub(crate) async fn create_backup(
         Some(viewer),
         "backup.create",
         &artifact.key,
-        json!({ "size": artifact.size }),
+        json!({ "size": artifact.size, "encrypted": artifact.encrypted, "keyId": artifact.key_id }),
     )
     .await;
     json_response(backup_artifact_payload(&artifact), 201).map_err(AppError::from)
@@ -29,7 +29,7 @@ pub(crate) async fn create_scheduled_backup(
         None,
         "backup.create",
         &artifact.key,
-        json!({ "size": artifact.size, "source": "scheduled", "pruned": pruned }),
+        json!({ "size": artifact.size, "source": "scheduled", "pruned": pruned, "encrypted": artifact.encrypted, "keyId": artifact.key_id }),
     )
     .await;
     Ok(artifact)
@@ -117,12 +117,14 @@ pub(crate) async fn download_backup(
         .execute()
         .await?
         .ok_or_else(|| AppError::new(404, "Backup not found"))?;
-    let body = object
+    let text = object
         .body()
         .ok_or_else(|| AppError::new(404, "Backup not found"))?
-        .response_body()?;
+        .text()
+        .await?;
+    let body = backup_plaintext(env, &text).await?;
     let filename = key.rsplit('/').next().unwrap_or("memos-backup.json");
-    let mut response = ResponseBuilder::new().body(body);
+    let mut response = Response::ok(body)?;
     response
         .headers_mut()
         .set("Content-Type", "application/json")?;

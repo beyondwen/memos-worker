@@ -4,21 +4,18 @@ pub(crate) async fn list_tags(
     env: &Env,
     viewer: &Viewer,
 ) -> std::result::Result<Response, AppError> {
-    let memos = get_recent_memos(env, viewer, 500).await?;
-    let mut counts: HashMap<String, i64> = HashMap::new();
-    for memo in memos {
-        if let Ok(payload) = serde_json::from_str::<Value>(&memo.payload) {
-            if let Some(tags) = payload.get("tags").and_then(Value::as_array) {
-                for tag in tags.iter().filter_map(Value::as_str) {
-                    *counts.entry(tag.to_string()).or_default() += 1;
-                }
-            }
-        }
-    }
-    let tags: Vec<Value> = counts
-        .into_iter()
-        .map(|(name, count)| json!({ "name": name, "count": count }))
-        .collect();
+    ensure_memo_index_tables(env).await?;
+    let rows = if viewer.role == "ADMIN" {
+        db(env)?.prepare("SELECT memo_tag.tag AS name, COUNT(*) AS count FROM memo_tag JOIN memo ON memo.id = memo_tag.memo_id WHERE memo.row_status = 'NORMAL' GROUP BY memo_tag.tag ORDER BY count DESC, memo_tag.tag ASC LIMIT 500")
+            .all()
+            .await?
+    } else {
+        db(env)?.prepare("SELECT memo_tag.tag AS name, COUNT(*) AS count FROM memo_tag JOIN memo ON memo.id = memo_tag.memo_id WHERE memo.row_status = 'NORMAL' AND (memo.visibility != 'PRIVATE' OR memo.creator_id = ?) GROUP BY memo_tag.tag ORDER BY count DESC, memo_tag.tag ASC LIMIT 500")
+            .bind(&[js_num(viewer.id)])?
+            .all()
+            .await?
+    };
+    let tags: Vec<Value> = rows.results()?;
     json_response(json!({ "tags": tags }), 200).map_err(AppError::from)
 }
 
@@ -64,6 +61,10 @@ pub(crate) async fn rename_tag(
             ])?
             .run()
             .await?;
+        let updated_memo = get_memo_by_uid(env, &memo.uid)
+            .await?
+            .ok_or_else(|| AppError::new(500, "Memo disappeared"))?;
+        sync_memo_index(env, &updated_memo).await?;
         updated += 1;
     }
     json_response(json!({ "updated": updated }), 200).map_err(AppError::from)
