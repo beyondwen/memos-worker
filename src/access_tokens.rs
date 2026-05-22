@@ -56,7 +56,7 @@ pub(crate) async fn create_access_token(
         .unwrap_or("Unnamed Token")
         .trim();
     let expires_ts = body.get("expiresTs").and_then(Value::as_i64);
-    let raw_token = format!("memos_pat_{}", base64url(&random_bytes(18)));
+    let raw_token = format!("memos_pat_{}", base64url(&random_bytes(18)?));
     let prefix: String = raw_token.chars().take(20).collect();
     let token_hash = sha256_hex(&raw_token);
     let now = unix_now();

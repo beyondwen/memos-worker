@@ -73,7 +73,7 @@ pub(crate) async fn upload_attachment(
     } else {
         file.type_()
     };
-    let uid = generate_uid("a");
+    let uid = generate_uid("a")?;
     let key = attachment_storage_key(viewer.id, &uid, &filename);
     let bytes = file.bytes().await?;
     let size = bytes.len() as i64;

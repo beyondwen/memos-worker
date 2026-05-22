@@ -14,7 +14,7 @@ pub(crate) async fn create_share(
     }
     let body: Value = req.json().await.unwrap_or_else(|_| json!({}));
     let expires_ts = body.get("expiresTs").and_then(Value::as_i64);
-    let share_uid = generate_uid("s");
+    let share_uid = generate_uid("s")?;
     let now = unix_now();
     db(env)?.prepare("INSERT INTO memo_share (uid, memo_id, creator_id, created_ts, expires_ts) VALUES (?, ?, ?, ?, ?)")
         .bind(&[

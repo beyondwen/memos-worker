@@ -52,11 +52,10 @@ pub(crate) async fn import_data(
             if content.is_empty() {
                 continue;
             }
-            let uid = item
-                .get("uid")
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-                .unwrap_or_else(|| generate_uid("m"));
+            let uid = match item.get("uid").and_then(Value::as_str) {
+                Some(uid) => uid.to_string(),
+                None => generate_uid("m")?,
+            };
             let created_ts = item
                 .get("created_ts")
                 .or_else(|| item.get("createdTs"))

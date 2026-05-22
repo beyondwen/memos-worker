@@ -96,7 +96,7 @@ pub(crate) async fn create_memo(
             .and_then(Value::as_str)
             .unwrap_or("PRIVATE"),
     )?;
-    let uid = generate_uid("m");
+    let uid = generate_uid("m")?;
     let now = unix_now();
     let payload = build_memo_payload(&content);
     db(env)?.prepare("INSERT INTO memo (uid, creator_id, created_ts, updated_ts, content, visibility, payload) VALUES (?, ?, ?, ?, ?, ?, ?)")

@@ -35,7 +35,7 @@ pub(crate) async fn setup_admin(
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::new(400, "Password is required"))?;
     assert_password(password)?;
-    let password_hash = hash_password(password);
+    let password_hash = hash_password(password)?;
     let now = unix_now();
     db.prepare("INSERT INTO \"user\" (created_ts, updated_ts, username, role, email, nickname, password_hash) VALUES (?, ?, ?, 'ADMIN', ?, ?, ?)")
         .bind(&[
@@ -89,7 +89,7 @@ pub(crate) async fn sign_up(
             role.into(),
             body.get("email").and_then(Value::as_str).unwrap_or("").into(),
             body.get("nickname").and_then(Value::as_str).unwrap_or(&username).into(),
-            hash_password(password).into(),
+            hash_password(password)?.into(),
         ])?
         .run()
         .await?;
@@ -164,7 +164,7 @@ pub(crate) async fn create_auth_response(
     status: u16,
 ) -> std::result::Result<Response, AppError> {
     let now = unix_now();
-    let session_id = generate_uid("s");
+    let session_id = generate_uid("s")?;
     let refresh_token = sign_jwt(
         &Claims {
             iss: "memos-worker".to_string(),

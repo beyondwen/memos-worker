@@ -53,7 +53,7 @@ pub(crate) async fn change_password(
     db(env)?
         .prepare("UPDATE \"user\" SET password_hash = ?, updated_ts = ? WHERE id = ?")
         .bind(&[
-            hash_password(new_password).into(),
+            hash_password(new_password)?.into(),
             js_num(unix_now()),
             js_num(viewer.id),
         ])?

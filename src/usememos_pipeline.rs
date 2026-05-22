@@ -166,7 +166,7 @@ pub(crate) async fn import_single_original_memo_inner(
     let now = unix_now();
     let created_ts = parse_original_timestamp(memo.create_time.as_ref(), now);
     let updated_ts = parse_original_timestamp(memo.update_time.as_ref(), created_ts);
-    let uid = generate_uid("m");
+    let uid = generate_uid("m")?;
     let attachments = memo.attachments.clone().unwrap_or_default();
     let relations = memo.relations.clone().unwrap_or_default();
     let mut payload = build_memo_payload_with_tags(&content, memo.tags.as_ref());

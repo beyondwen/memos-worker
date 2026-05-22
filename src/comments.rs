@@ -45,7 +45,7 @@ pub(crate) async fn create_comment(
     if content.is_empty() {
         return Err(AppError::new(400, "Content is required"));
     }
-    let uid = generate_uid("m");
+    let uid = generate_uid("m")?;
     let now = unix_now();
     db(env)?.prepare("INSERT INTO memo (uid, creator_id, created_ts, updated_ts, content, visibility, payload) VALUES (?, ?, ?, ?, ?, 'PROTECTED', ?)")
         .bind(&[uid.clone().into(), js_num(viewer.id), js_num(now), js_num(now), content.into(), build_memo_payload("").to_string().into()])?

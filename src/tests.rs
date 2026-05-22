@@ -20,6 +20,17 @@ fn sanitize_filename_replaces_unsafe_names() {
 }
 
 #[test]
+fn random_bytes_with_filler_returns_exact_length() {
+    let bytes = random_bytes_with_filler(4, |output| {
+        output.copy_from_slice(&[1, 2, 3, 4]);
+        Ok(())
+    })
+    .expect("random bytes");
+
+    assert_eq!(bytes, vec![1, 2, 3, 4]);
+}
+
+#[test]
 fn attachment_storage_key_uses_creator_uid_and_filename() {
     assert_eq!(
         attachment_storage_key(7, "a_123", "note.txt"),

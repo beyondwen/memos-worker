@@ -1,170 +1,34 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
 import { route } from "preact-router";
-import { api, apiFetch } from "../api";
+import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
 import { normalizeWebhookForm } from "../integrationHelpers";
 import { webhookDeliveryStatusMeta, webhookDeliveryTimeLabel } from "../webhookDeliveryView";
 import { attachmentCleanupSummary, formatBytes } from "../attachmentCleanupView";
 import type { CurrentUser } from "../App";
+import {
+  type AiSettings,
+  type Attachment,
+  type AuditLog,
+  type BackupItem,
+  type BackupPreview,
+  type MigrationPreview,
+  type MigrationProgress,
+  type MigrationResult,
+  type NewPat,
+  type Pat,
+  type SettingsTab,
+  type TagItem,
+  type UserStats,
+  type Webhook,
+  type WebhookDelivery,
+} from "./settingsModel";
+import { runMigrationStream } from "./settingsMigration";
+import { AuditSettingsTab, MaintenanceSettingsTab, SettingsTabBar } from "./settingsTabs";
 
 interface SettingsPageProps {
   path: string;
   currentUser: CurrentUser | null;
-}
-
-interface Pat {
-  id: number;
-  name: string;
-  prefix: string;
-  createdTs: number;
-  expiresTs: number | null;
-  rowStatus: string;
-}
-
-interface NewPat {
-  id: number;
-  name: string;
-  token: string;
-  prefix: string;
-  createdTs: number;
-  expiresTs: number | null;
-}
-
-interface Webhook {
-  id: number;
-  name: string;
-  url: string;
-  rowStatus: "NORMAL" | "ARCHIVED";
-  createdTs: number;
-  updatedTs: number;
-}
-
-interface WebhookDelivery {
-  id: number;
-  webhookId: number;
-  webhookName: string;
-  webhookUrl: string;
-  createdTs: number;
-  event: string;
-  status: "SUCCESS" | "FAILED";
-  statusCode: number | null;
-  durationMs: number;
-  error: string;
-  responseBody: string;
-}
-
-interface Attachment {
-  uid: string;
-  filename: string;
-  type: string;
-  size: number;
-  createdTs: number;
-  url: string;
-}
-
-interface UserStats {
-  memoCount: number;
-  attachmentCount: number;
-}
-
-interface BackupItem {
-  key: string;
-  size: number;
-  uploaded: string;
-}
-
-interface BackupPreview {
-  userCount: number;
-  memoCount: number;
-  attachmentCount: number;
-  relationCount: number;
-}
-
-interface MigrationPreview {
-  memoCount: number;
-  attachmentCount: number;
-  relationCount: number;
-  archivedCount: number;
-  truncated: boolean;
-}
-
-interface MigrationResult extends MigrationPreview {
-  imported: number;
-  skipped: number;
-}
-
-interface MigrationProgress extends MigrationResult {
-  phase: "fetching" | "importing" | "done";
-  processed: number;
-  state?: string;
-}
-
-interface AiSettings {
-  baseUrl: string;
-  model: string;
-  configured: boolean;
-}
-
-interface TagItem {
-  name: string;
-  count: number;
-}
-
-interface AuditLog {
-  id: number;
-  createdTs: number;
-  actorUsername: string | null;
-  action?: string;
-  actionLabel: string;
-  target: string;
-  detail?: Record<string, unknown>;
-}
-
-type SettingsTab = "account" | "integrations" | "data" | "maintenance" | "audit";
-
-const SETTINGS_TABS: Array<{
-  id: SettingsTab;
-  label: string;
-  description: string;
-  adminOnly?: boolean;
-}> = [
-  { id: "account", label: "账号", description: "资料、密码和访问令牌" },
-  { id: "integrations", label: "集成", description: "Webhook 和投递记录" },
-  { id: "data", label: "数据", description: "导入导出、备份和标签", adminOnly: true },
-  { id: "maintenance", label: "维护", description: "附件清理" },
-  { id: "audit", label: "审计", description: "操作记录", adminOnly: true },
-];
-
-function parseMigrationStreamEvent(raw: string): { name: string; data: unknown } {
-  let name = "message";
-  const dataLines: string[] = [];
-  for (const line of raw.split("\n")) {
-    if (line.startsWith("event:")) name = line.slice("event:".length).trim();
-    if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trim());
-  }
-  return {
-    name,
-    data: JSON.parse(dataLines.join("\n") || "{}"),
-  };
-}
-
-function auditLogDetail(log: AuditLog): string {
-  const detail = log.detail ?? {};
-  if (log.action?.startsWith("migration.usememos")) {
-    const imported = Number(detail.imported ?? 0);
-    const skipped = Number(detail.skipped ?? 0);
-    const total = Number(detail.memoCount ?? 0);
-    const error = typeof detail.error === "string" ? detail.error : "";
-    if (error) return error;
-    if (total || imported || skipped) return `导入 ${imported}，跳过 ${skipped}，总计 ${total}`;
-    const baseUrl = typeof detail.baseUrl === "string" ? detail.baseUrl : "";
-    return baseUrl ? `来源 ${baseUrl}` : log.target;
-  }
-  if (log.action?.startsWith("backup.")) {
-    const size = Number(detail.size ?? 0);
-    return size ? `${log.target} · ${Math.round(size / 1024)} KB` : log.target;
-  }
-  return log.target;
 }
 
 export function SettingsPage({ currentUser }: SettingsPageProps) {
@@ -652,51 +516,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
-  const runMigrationStream = async (
-    path: string,
-    payload: ReturnType<typeof migrationPayload>,
-    onProgress: (progress: MigrationProgress) => void
-  ): Promise<MigrationProgress> => {
-    const response = await apiFetch(path, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || `HTTP ${response.status}`);
-    }
-    if (!response.body) throw new Error("浏览器不支持读取迁移进度");
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let finalResult: MigrationProgress | null = null;
-
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const rawEvent = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const event = parseMigrationStreamEvent(rawEvent);
-        if (event.name === "error") {
-          throw new Error(String((event.data as { error?: string }).error || "迁移失败"));
-        }
-        if (event.name === "progress" || event.name === "done") {
-          const progress = event.data as MigrationProgress;
-          onProgress(progress);
-          if (event.name === "done") finalResult = progress;
-        }
-        boundary = buffer.indexOf("\n\n");
-      }
-      if (done) break;
-    }
-
-    if (!finalResult) throw new Error("迁移进度流提前结束");
-    return finalResult;
-  };
-
   const handleDeleteAttachment = async (attachment: Attachment) => {
     const ok = await confirm({
       title: "删除未绑定附件？",
@@ -843,21 +662,11 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
         </div>
       </div>
 
-      <div class="settings-tabs" role="tablist" aria-label="设置分类">
-        {SETTINGS_TABS.filter((tab) => !tab.adminOnly || currentUser.role === "ADMIN").map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeSettingsTab === tab.id}
-            class={`settings-tab${activeSettingsTab === tab.id ? " active" : ""}`}
-            onClick={() => setActiveSettingsTab(tab.id)}
-          >
-            <span>{tab.label}</span>
-            <small>{tab.description}</small>
-          </button>
-        ))}
-      </div>
+      <SettingsTabBar
+        currentUser={currentUser}
+        activeSettingsTab={activeSettingsTab}
+        onChange={setActiveSettingsTab}
+      />
 
       {activeSettingsTab === "account" && (
         <>
@@ -1352,60 +1161,17 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       )}
 
       {activeSettingsTab === "maintenance" && (
-      <div class="settings-section">
-        <h2>附件清理</h2>
-        <div class="settings-actions">
-          <span class="muted-line">{attachmentSummary.count} 个未绑定附件，共 {attachmentSummary.sizeLabel}</span>
-          <button class="btn btn-danger btn-sm" onClick={() => handleBatchDeleteAttachments()} disabled={unattachedAttachments.length === 0}>
-            全部清理
-          </button>
-          <button class="btn btn-secondary btn-sm" onClick={() => handleBatchDeleteAttachments(30)} disabled={unattachedAttachments.length === 0}>
-            清理 30 天前
-          </button>
-        </div>
-        <div class="settings-record-list">
-          {unattachedAttachments.map((attachment) => (
-            <div key={attachment.uid} class="settings-record-row attachment-cleanup-item">
-              <div class="settings-record-main">
-                <span class="settings-record-title">{attachment.filename}</span>
-                <span class="settings-record-meta">{formatBytes(attachment.size)}</span>
-              </div>
-              <div class="settings-record-actions">
-                <a class="btn btn-ghost btn-sm" href={attachment.url} target="_blank" rel="noopener noreferrer">
-                  预览
-                </a>
-              <button
-                class="btn btn-danger-soft btn-sm"
-                onClick={() => handleDeleteAttachment(attachment)}
-                disabled={deletingAttachmentUid === attachment.uid}
-              >
-                {deletingAttachmentUid === attachment.uid ? "删除中..." : "删除"}
-              </button>
-              </div>
-            </div>
-          ))}
-          {unattachedAttachments.length === 0 && <div class="muted-line">暂无未绑定附件。</div>}
-        </div>
-      </div>
+        <MaintenanceSettingsTab
+          attachmentSummary={attachmentSummary}
+          unattachedAttachments={unattachedAttachments}
+          deletingAttachmentUid={deletingAttachmentUid}
+          onBatchDeleteAttachments={handleBatchDeleteAttachments}
+          onDeleteAttachment={handleDeleteAttachment}
+        />
       )}
 
       {activeSettingsTab === "audit" && currentUser.role === "ADMIN" && (
-        <div class="settings-section">
-          <h2>操作审计</h2>
-          <div class="webhook-delivery-list">
-            {auditLogs.map((log) => (
-              <div key={log.id} class="webhook-delivery-item">
-                <div class="webhook-delivery-main">
-                  <span class="delivery-event">{log.actionLabel}</span>
-                  <span class="delivery-name">{log.actorUsername ?? "system"}</span>
-                  <span class="delivery-time">{new Date(log.createdTs * 1000).toLocaleString("zh-CN")}</span>
-                </div>
-                <span class="delivery-error">{auditLogDetail(log)}</span>
-              </div>
-            ))}
-            {auditLogs.length === 0 && <div class="muted-line">暂无审计记录。</div>}
-          </div>
-        </div>
+        <AuditSettingsTab auditLogs={auditLogs} />
       )}
     </div>
   );
