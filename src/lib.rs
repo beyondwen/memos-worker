@@ -3,7 +3,7 @@ use futures_channel::mpsc;
 use futures_util::StreamExt;
 use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2_hmac;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
