@@ -114,6 +114,16 @@ struct DbMemoRelation {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+struct DbMemoEvent {
+    id: i64,
+    event_type: String,
+    name: String,
+    visibility: String,
+    creator_id: i64,
+    payload: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 struct RelationCandidate {
     uid: String,
     content: String,
@@ -548,7 +558,7 @@ async fn authed_route(
         };
     }
     if path == "/api/v1/sse" && method == Method::Get {
-        return connect_sse(&viewer);
+        return connect_sse(req, env, url, &viewer).await;
     }
 
     if let Some(uid) = path.strip_prefix("/api/v1/memos/") {
@@ -696,6 +706,11 @@ async fn current_viewer(req: &Request, env: &Env) -> std::result::Result<Viewer,
         }
     }
     if token.is_none() {
+        if let Ok(url) = req.url() {
+            token = query_param(&url, "access_token").or_else(|| query_param(&url, "token"));
+        }
+    }
+    if token.is_none() {
         let cookies = parse_cookies(req.headers().get("Cookie").ok().flatten().unwrap_or_default().as_str());
         token = cookies.get(ACCESS_COOKIE).cloned();
     }
@@ -799,6 +814,7 @@ async fn create_memo(req: &mut Request, env: &Env, viewer: &Viewer) -> std::resu
         .run()
         .await?;
     let memo = get_memo_by_uid(env, &uid).await?.ok_or_else(|| AppError::new(500, "Failed to create memo"))?;
+    emit_memo_event(env, "memo.created", &memo).await;
     let memo = memo_with_attachments(env, memo).await?;
     json_response(json!({ "memo": memo }), 201).map_err(AppError::from)
 }
@@ -839,11 +855,14 @@ async fn memo_subroute(req: &mut Request, env: &Env, viewer: &Viewer, raw: &str,
             }
             if url.query_pairs().any(|(k, v)| k == "purge" && v == "true") {
                 purge_ids(env, &[memo.id]).await?;
+                emit_memo_event(env, "memo.deleted", &memo).await;
             } else {
                 db(env)?.prepare("UPDATE memo SET row_status = 'ARCHIVED', updated_ts = ? WHERE id = ?")
                     .bind(&[js_num(unix_now()), js_num(memo.id)])?
                     .run()
                     .await?;
+                let archived = DbMemo { row_status: "ARCHIVED".to_string(), updated_ts: unix_now(), ..memo.clone() };
+                emit_memo_event(env, "memo.archived", &archived).await;
             }
             json_response(json!({ "ok": true }), 200).map_err(AppError::from)
         }
@@ -884,6 +903,12 @@ async fn update_memo(req: &mut Request, env: &Env, viewer: &Viewer, uid: &str) -
         .run()
         .await?;
     let updated = get_memo_by_uid(env, uid).await?.ok_or_else(|| AppError::new(500, "Memo disappeared"))?;
+    let event_type = if memo.row_status != updated.row_status {
+        if updated.row_status == "ARCHIVED" { "memo.archived" } else { "memo.restored" }
+    } else {
+        "memo.updated"
+    };
+    emit_memo_event(env, event_type, &updated).await;
     let updated = memo_with_attachments(env, updated).await?;
     json_response(json!({ "memo": updated }), 200).map_err(AppError::from)
 }
@@ -1504,8 +1529,10 @@ fn send_sse_chunk<T: Serialize>(sender: &mut mpsc::UnboundedSender<Vec<u8>>, eve
     sender.unbounded_send(chunk.into_bytes()).map_err(|_| AppError::new(500, "Migration progress stream closed"))
 }
 
-fn connect_sse(viewer: &Viewer) -> std::result::Result<Response, AppError> {
-    let body = sse_ready_payload(viewer.id)?;
+async fn connect_sse(req: &Request, env: &Env, url: &Url, viewer: &Viewer) -> std::result::Result<Response, AppError> {
+    let last_event_id = req.headers().get("Last-Event-ID").ok().flatten();
+    let since_id = sse_since_id(last_event_id.as_deref(), url);
+    let body = sse_connection_payload(env, viewer, since_id).await?;
     let mut response = Response::ok(body)?;
     response.headers_mut().set("Content-Type", "text/event-stream; charset=utf-8")?;
     response.headers_mut().set("Cache-Control", "no-store")?;
@@ -1514,7 +1541,107 @@ fn connect_sse(viewer: &Viewer) -> std::result::Result<Response, AppError> {
 }
 
 fn sse_ready_payload(user_id: i64) -> std::result::Result<String, AppError> {
-    Ok(format!("retry: 30000\n{}", sse_event("ready", &json!({ "userId": user_id }))?))
+    Ok(format!("retry: 5000\n{}", sse_event("ready", &json!({ "userId": user_id }))?))
+}
+
+async fn sse_connection_payload(env: &Env, viewer: &Viewer, since_id: Option<i64>) -> std::result::Result<String, AppError> {
+    let mut body = sse_ready_payload(viewer.id)?;
+    for event in list_memo_events(env, viewer, since_id).await? {
+        body.push_str(&memo_event_sse(&event)?);
+    }
+    Ok(body)
+}
+
+fn sse_since_id(last_event_id: Option<&str>, url: &Url) -> Option<i64> {
+    last_event_id
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .or_else(|| query_param(url, "since").and_then(|value| value.parse::<i64>().ok()))
+        .filter(|value| *value > 0)
+}
+
+fn memo_event_sse(event: &DbMemoEvent) -> std::result::Result<String, AppError> {
+    let mut payload = serde_json::from_str::<Value>(&event.payload).unwrap_or_else(|_| json!({}));
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("id".to_string(), json!(event.id.to_string()));
+        object.insert("type".to_string(), json!(event.event_type.clone()));
+        object.insert("name".to_string(), json!(event.name.clone()));
+        object.insert("visibility".to_string(), json!(event.visibility.clone()));
+        object.insert("creatorId".to_string(), json!(event.creator_id));
+    }
+    format_sse_event(Some(event.id), Some(&event.event_type), &payload)
+}
+
+fn format_sse_event(id: Option<i64>, event: Option<&str>, data: &Value) -> std::result::Result<String, AppError> {
+    let mut chunk = String::new();
+    if let Some(id) = id {
+        chunk.push_str(&format!("id: {}\n", id));
+    }
+    if let Some(event) = event {
+        chunk.push_str(&format!("event: {}\n", event));
+    }
+    chunk.push_str(&format!("data: {}\n\n", serde_json::to_string(data).map_err(|error| AppError::new(500, error.to_string()))?));
+    Ok(chunk)
+}
+
+async fn list_memo_events(env: &Env, viewer: &Viewer, since_id: Option<i64>) -> std::result::Result<Vec<DbMemoEvent>, AppError> {
+    ensure_memo_event_table(env).await?;
+    let rows = if let Some(id) = since_id {
+        db(env)?.prepare("SELECT * FROM memo_event WHERE id > ? AND (? = 'ADMIN' OR visibility != 'PRIVATE' OR creator_id = ?) ORDER BY id ASC LIMIT 100")
+            .bind(&[js_num(id), viewer.role.clone().into(), js_num(viewer.id)])?
+            .all()
+            .await?
+    } else {
+        db(env)?.prepare("SELECT * FROM memo_event WHERE created_ts >= ? AND (? = 'ADMIN' OR visibility != 'PRIVATE' OR creator_id = ?) ORDER BY id ASC LIMIT 100")
+            .bind(&[js_num(unix_now() - 60), viewer.role.clone().into(), js_num(viewer.id)])?
+            .all()
+            .await?
+    };
+    Ok(rows.results()?)
+}
+
+async fn emit_memo_event(env: &Env, event_type: &str, memo: &DbMemo) {
+    if let Err(error) = record_memo_event(env, event_type, memo).await {
+        console_log!("memo event record failed: {}", error.message);
+    }
+}
+
+async fn record_memo_event(env: &Env, event_type: &str, memo: &DbMemo) -> std::result::Result<(), AppError> {
+    ensure_memo_event_table(env).await?;
+    let payload = memo_event_payload(event_type, memo);
+    db(env)?.prepare("INSERT INTO memo_event (created_ts, event_type, name, visibility, creator_id, payload) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(&[
+            js_num(unix_now()),
+            event_type.into(),
+            format!("memos/{}", memo.uid).into(),
+            memo.visibility.clone().into(),
+            js_num(memo.creator_id),
+            payload.to_string().into(),
+        ])?
+        .run()
+        .await?;
+    Ok(())
+}
+
+fn memo_event_payload(event_type: &str, memo: &DbMemo) -> Value {
+    json!({
+        "type": event_type,
+        "name": format!("memos/{}", memo.uid),
+        "visibility": memo.visibility,
+        "creatorId": memo.creator_id
+    })
+}
+
+async fn ensure_memo_event_table(env: &Env) -> std::result::Result<(), AppError> {
+    db(env)?.prepare("CREATE TABLE IF NOT EXISTS memo_event (id INTEGER PRIMARY KEY AUTOINCREMENT, created_ts INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), event_type TEXT NOT NULL, name TEXT NOT NULL, visibility TEXT NOT NULL DEFAULT 'PRIVATE', creator_id INTEGER NOT NULL, payload TEXT NOT NULL DEFAULT '{}')")
+        .run()
+        .await?;
+    db(env)?.prepare("CREATE INDEX IF NOT EXISTS idx_memo_event_created ON memo_event(created_ts, id)")
+        .run()
+        .await?;
+    db(env)?.prepare("CREATE INDEX IF NOT EXISTS idx_memo_event_visibility ON memo_event(visibility, creator_id, id)")
+        .run()
+        .await?;
+    Ok(())
 }
 
 async fn record_migration_audit(env: &Env, viewer: &Viewer, options: &MigrationOptions, progress: &MigrationProgress) {
@@ -2414,6 +2541,8 @@ async fn create_comment(req: &mut Request, env: &Env, viewer: &Viewer, parent_ui
         .bind(&[js_num(parent.id), js_num(comment.id)])?
         .run()
         .await?;
+    emit_memo_event(env, "memo.created", &comment).await;
+    emit_memo_event(env, "memo.comment.created", &parent).await;
     let comment = memo_with_attachments(env, comment).await?;
     json_response(json!({ "memo": comment }), 201).map_err(AppError::from)
 }
@@ -2440,6 +2569,7 @@ async fn upsert_reaction(req: &mut Request, env: &Env, viewer: &Viewer, uid: &st
         .bind(&[js_num(unix_now()), js_num(viewer.id), js_num(memo.id), reaction_type.into()])?
         .run()
         .await?;
+    emit_memo_event(env, "reaction.upserted", &memo).await;
     list_reactions_for_memo(env, memo.id).await
 }
 
@@ -2459,6 +2589,7 @@ async fn delete_reaction(env: &Env, viewer: &Viewer, uid: &str, reaction_id: &st
         .bind(&[js_num(id)])?
         .run()
         .await?;
+    emit_memo_event(env, "reaction.deleted", &memo).await;
     list_reactions_for_memo(env, memo.id).await
 }
 
@@ -3412,9 +3543,50 @@ mod tests {
     fn sse_ready_payload_is_valid_event_stream() {
         let payload = sse_ready_payload(7).expect("ready payload");
 
-        assert!(payload.starts_with("retry: 30000\n"));
+        assert!(payload.starts_with("retry: 5000\n"));
         assert!(payload.contains("event: ready\n"));
         assert!(payload.contains("\"userId\":7"));
+    }
+
+    #[test]
+    fn memo_event_sse_includes_id_event_and_payload() {
+        let event = DbMemoEvent {
+            id: 42,
+            event_type: "memo.updated".to_string(),
+            name: "memos/m_1".to_string(),
+            visibility: "PRIVATE".to_string(),
+            creator_id: 7,
+            payload: json!({ "type": "memo.updated", "name": "memos/m_1" }).to_string(),
+        };
+        let payload = memo_event_sse(&event).expect("memo event");
+
+        assert!(payload.starts_with("id: 42\nevent: memo.updated\n"));
+        assert!(payload.contains("\"id\":\"42\""));
+        assert!(payload.contains("\"creatorId\":7"));
+    }
+
+    #[test]
+    fn sse_since_id_prefers_last_event_id() {
+        let url = Url::parse("https://memos.local/api/v1/sse?since=7").expect("url");
+
+        assert_eq!(sse_since_id(Some("42"), &url), Some(42));
+        assert_eq!(sse_since_id(None, &url), Some(7));
+        assert_eq!(sse_since_id(Some("bad"), &url), Some(7));
+    }
+
+    #[test]
+    fn memo_event_payload_matches_frontend_refresh_shape() {
+        let memo = sample_memo();
+
+        assert_eq!(
+            memo_event_payload("memo.updated", &memo),
+            json!({
+                "type": "memo.updated",
+                "name": "memos/m_1",
+                "visibility": "PRIVATE",
+                "creatorId": 7
+            })
+        );
     }
 
     #[test]
