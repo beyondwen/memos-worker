@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useFeedback } from "../components/Feedback";
 import { normalizeWebhookForm } from "../integrationHelpers";
 import { attachmentCleanupSummary } from "../attachmentCleanupView";
+import { PERSONAL_MODE_FEATURES } from "../personalMode";
 import type { CurrentUser } from "../App";
 import { AccountSettingsTab } from "./AccountSettingsTab";
 import { DataSettingsTab } from "./DataSettingsTab";
@@ -96,7 +97,11 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   }, [currentUser]);
 
   useEffect(() => {
-    if (currentUser?.role !== "ADMIN" && (activeSettingsTab === "data" || activeSettingsTab === "audit")) {
+    if (
+      (currentUser?.role !== "ADMIN" && (activeSettingsTab === "data" || activeSettingsTab === "audit")) ||
+      (!PERSONAL_MODE_FEATURES.integrations && activeSettingsTab === "integrations") ||
+      (!PERSONAL_MODE_FEATURES.audit && activeSettingsTab === "audit")
+    ) {
       setActiveSettingsTab("account");
     }
   }, [activeSettingsTab, currentUser?.role]);
@@ -127,7 +132,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   }, [fetchPats]);
 
   const fetchWebhooks = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || !PERSONAL_MODE_FEATURES.integrations) return;
     try {
       const data = await api<{ webhooks: Webhook[] }>("/api/v1/webhooks");
       setWebhooks(data.webhooks);
@@ -137,7 +142,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   }, [currentUser]);
 
   const fetchWebhookDeliveries = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || !PERSONAL_MODE_FEATURES.integrations) return;
     try {
       const data = await api<{ deliveries: WebhookDelivery[] }>("/api/v1/webhooks/deliveries");
       setWebhookDeliveries(data.deliveries);
@@ -204,7 +209,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   }, [currentUser]);
 
   const fetchAuditLogs = useCallback(async () => {
-    if (!currentUser || currentUser.role !== "ADMIN") return;
+    if (!currentUser || currentUser.role !== "ADMIN" || !PERSONAL_MODE_FEATURES.audit) return;
     try {
       const data = await api<{ logs: AuditLog[] }>("/api/v1/audit-logs");
       setAuditLogs(data.logs);

@@ -1,3 +1,5 @@
+import { PERSONAL_MODE_FEATURES } from "../personalMode";
+
 interface MemoActionsProps {
   isOwner: boolean | null;
   archived: boolean;
@@ -59,15 +61,21 @@ export function MemoActions({
           <span>删除</span>
         </button>
       )}
-      <button class="memo-action-icon" title="表态" aria-label="表态" onClick={onReact}>
-        <span aria-hidden="true">♡</span>
-      </button>
-      <button class="memo-action-icon" title="评论" aria-label="评论" onClick={onComments}>
-        <span aria-hidden="true">☰</span>{commentCount > 0 ? commentCount : ""}
-      </button>
-      <button class="memo-action-icon" title="分享" aria-label="分享" onClick={onShare}>
-        <span aria-hidden="true">⛓</span>
-      </button>
+      {PERSONAL_MODE_FEATURES.socialActions && (
+        <>
+          <button class="memo-action-icon" title="表态" aria-label="表态" onClick={onReact}>
+            <span aria-hidden="true">♡</span>
+          </button>
+          <button class="memo-action-icon" title="评论" aria-label="评论" onClick={onComments}>
+            <span aria-hidden="true">☰</span>{commentCount > 0 ? commentCount : ""}
+          </button>
+        </>
+      )}
+      {PERSONAL_MODE_FEATURES.publicSharing && (
+        <button class="memo-action-icon" title="分享" aria-label="分享" onClick={onShare}>
+          <span aria-hidden="true">⛓</span>
+        </button>
+      )}
     </div>
   );
 }

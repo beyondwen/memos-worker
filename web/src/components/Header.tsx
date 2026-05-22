@@ -3,6 +3,7 @@ import { route } from "preact-router";
 import { api, getToken } from "../api";
 import { createMemoEventSource, shouldRefreshForSseEvent } from "../sseEvents";
 import { isHeaderNavActive } from "../headerNav";
+import { PERSONAL_MODE_FEATURES, personalPrimaryNavItems } from "../personalMode";
 import type { CurrentUser } from "../App";
 
 interface HeaderProps {
@@ -23,7 +24,7 @@ export function Header({ currentUser, onLogout, activePath }: HeaderProps) {
   }, [activePath]);
 
   const refreshInbox = useCallback(async () => {
-    if (!currentUser) {
+    if (!currentUser || !PERSONAL_MODE_FEATURES.inbox) {
       setUnreadCount(0);
       return;
     }
@@ -36,6 +37,7 @@ export function Header({ currentUser, onLogout, activePath }: HeaderProps) {
   }, [currentUser]);
 
   useEffect(() => {
+    if (!PERSONAL_MODE_FEATURES.inbox) return;
     refreshInbox();
     const listener = () => refreshInbox();
     window.addEventListener("memos:inbox-refresh", listener);
@@ -43,7 +45,7 @@ export function Header({ currentUser, onLogout, activePath }: HeaderProps) {
   }, [refreshInbox]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !PERSONAL_MODE_FEATURES.inbox) return;
     const source = createMemoEventSource(getToken());
     if (!source) return;
     const refresh = (message: MessageEvent) => {
@@ -81,11 +83,9 @@ export function Header({ currentUser, onLogout, activePath }: HeaderProps) {
       </a>
 
       <nav class={`header-nav${menuOpen ? " open" : ""}`}>
-        {nav("/", "首页")}
-        {nav("/explore", "发现")}
-        {currentUser && nav("/timeline", "时间线")}
-        {currentUser && nav("/inbox", "通知", unreadCount)}
-        {currentUser && nav("/settings", "设置")}
+        {personalPrimaryNavItems(!!currentUser).map((item) =>
+          nav(item.href, item.label, item.id === "inbox" ? unreadCount : undefined)
+        )}
       </nav>
 
       <div class="header-spacer" />

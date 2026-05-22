@@ -1,4 +1,5 @@
 import type { CurrentUser } from "../App";
+import { PERSONAL_MODE_FEATURES } from "../personalMode";
 import type { NewPat, Pat, UserStats } from "./settingsModel";
 
 interface AccountSettingsTabProps {
@@ -89,12 +90,14 @@ export function AccountSettingsTab({
             <strong>{stats?.attachmentCount ?? "-"}</strong>
           </div>
         </div>
-        <div class="settings-links">
-          <a href="/api/v1/explore/rss.xml" target="_blank" rel="noopener noreferrer">公开 RSS</a>
-          <a href={`/api/v1/u/${encodeURIComponent(currentUser.username)}/rss.xml`} target="_blank" rel="noopener noreferrer">
-            我的公开 RSS
-          </a>
-        </div>
+        {PERSONAL_MODE_FEATURES.rss && (
+          <div class="settings-links">
+            <a href="/api/v1/explore/rss.xml" target="_blank" rel="noopener noreferrer">公开 RSS</a>
+            <a href={`/api/v1/u/${encodeURIComponent(currentUser.username)}/rss.xml`} target="_blank" rel="noopener noreferrer">
+              我的公开 RSS
+            </a>
+          </div>
+        )}
       </div>
 
       <div class="settings-section">
@@ -186,6 +189,7 @@ export function AccountSettingsTab({
         </form>
       </div>
 
+      {PERSONAL_MODE_FEATURES.accessTokens && (
       <div class="settings-section">
         <h2>个人访问令牌</h2>
 
@@ -238,6 +242,7 @@ export function AccountSettingsTab({
           </div>
         )}
       </div>
+      )}
     </>
   );
 }

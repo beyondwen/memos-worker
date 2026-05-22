@@ -23,7 +23,9 @@ import { attachmentCleanupSummary } from "../web/src/attachmentCleanupView";
 import { buildHomeDateFilterPath, parseHomeDateFilterParams, stripHomeFilterParams } from "../web/src/homeFilters";
 import { shouldOpenMemoDetailFromCardClick } from "../web/src/cardClick";
 import { isHeaderNavActive } from "../web/src/headerNav";
+import { personalPrimaryNavItems, personalSettingsTabs } from "../web/src/personalMode";
 import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
+import { SETTINGS_TABS } from "../web/src/pages/settingsModel";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -324,6 +326,27 @@ describe("header navigation state", () => {
   it("does not keep home active for other routes", () => {
     expect(isHeaderNavActive("/explore", "/")).toBe(false);
     expect(isHeaderNavActive("/settings", "/")).toBe(false);
+  });
+});
+
+describe("personal mode feature trim", () => {
+  it("keeps only personal-first primary navigation", () => {
+    expect(personalPrimaryNavItems(true).map((item) => item.id)).toEqual([
+      "home",
+      "timeline",
+      "settings",
+    ]);
+    expect(personalPrimaryNavItems(false).map((item) => item.id)).toEqual([
+      "home",
+    ]);
+  });
+
+  it("hides integration and audit settings tabs by default", () => {
+    expect(personalSettingsTabs(SETTINGS_TABS, "ADMIN").map((tab) => tab.id)).toEqual([
+      "account",
+      "data",
+      "maintenance",
+    ]);
   });
 });
 

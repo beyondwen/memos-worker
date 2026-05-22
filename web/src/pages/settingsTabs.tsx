@@ -1,5 +1,6 @@
 import { formatBytes } from "../attachmentCleanupView";
 import type { CurrentUser } from "../App";
+import { personalSettingsTabs } from "../personalMode";
 import {
   SETTINGS_TABS,
   auditLogDetail,
@@ -17,7 +18,7 @@ interface SettingsTabBarProps {
 export function SettingsTabBar({ currentUser, activeSettingsTab, onChange }: SettingsTabBarProps) {
   return (
     <div class="settings-tabs" role="tablist" aria-label="设置分类">
-      {SETTINGS_TABS.filter((tab) => !tab.adminOnly || currentUser.role === "ADMIN").map((tab) => (
+      {personalSettingsTabs(SETTINGS_TABS, currentUser.role).map((tab) => (
         <button
           key={tab.id}
           type="button"
