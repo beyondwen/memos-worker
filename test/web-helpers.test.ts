@@ -23,6 +23,7 @@ import { attachmentCleanupSummary } from "../web/src/attachmentCleanupView";
 import { buildHomeDateFilterPath, parseHomeDateFilterParams, stripHomeFilterParams } from "../web/src/homeFilters";
 import { shouldOpenMemoDetailFromCardClick } from "../web/src/cardClick";
 import { isHeaderNavActive } from "../web/src/headerNav";
+import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
 
 class MemoryStorage implements StorageLike {
   private values = new Map<string, string>();
@@ -411,6 +412,79 @@ describe("integration helpers", () => {
     expect(normalizeWebhookForm("CI", "not-url")).toEqual({
       ok: false,
       error: "请输入有效的 Webhook URL",
+    });
+  });
+});
+
+describe("settings page helpers", () => {
+  it("builds trimmed AI settings payloads without preserving form whitespace", () => {
+    expect(buildAiSettingsPayload({
+      baseUrl: " https://api.example.test/v1 ",
+      model: " model-x ",
+      apiKey: " sk-test ",
+    })).toEqual({
+      baseUrl: "https://api.example.test/v1",
+      model: "model-x",
+      apiKey: "sk-test",
+    });
+  });
+
+  it("describes migration progress for previewing, running and done states", () => {
+    expect(buildMigrationProgressView({
+      previewing: true,
+      importing: false,
+      preview: null,
+      progress: null,
+    })).toMatchObject({
+      visible: true,
+      knownTotal: 0,
+      percent: null,
+      title: "正在预检源数据",
+      detail: "正在读取原版 Memos 列表和元信息",
+    });
+
+    expect(buildMigrationProgressView({
+      previewing: false,
+      importing: true,
+      preview: { memoCount: 10, attachmentCount: 0, relationCount: 0, archivedCount: 0, truncated: false },
+      progress: {
+        phase: "importing",
+        processed: 4,
+        imported: 3,
+        skipped: 1,
+        memoCount: 10,
+        attachmentCount: 0,
+        relationCount: 0,
+        archivedCount: 0,
+        truncated: false,
+      },
+    })).toMatchObject({
+      visible: true,
+      knownTotal: 10,
+      percent: 40,
+      title: "正在迁移备忘录",
+      detail: "已处理 4 / 10 条，导入 3 条，跳过 1 条",
+    });
+
+    expect(buildMigrationProgressView({
+      previewing: false,
+      importing: false,
+      preview: { memoCount: 2, attachmentCount: 0, relationCount: 0, archivedCount: 0, truncated: false },
+      progress: {
+        phase: "done",
+        processed: 2,
+        imported: 2,
+        skipped: 0,
+        memoCount: 2,
+        attachmentCount: 0,
+        relationCount: 0,
+        archivedCount: 0,
+        truncated: false,
+      },
+    })).toMatchObject({
+      visible: true,
+      percent: 100,
+      title: "迁移完成",
     });
   });
 });

@@ -26,6 +26,7 @@ import {
   type WebhookDelivery,
 } from "./settingsModel";
 import { runMigrationStream } from "./settingsMigration";
+import { buildAiSettingsPayload, buildMigrationPayload, buildMigrationProgressView } from "./settingsPageHelpers";
 import { AuditSettingsTab, MaintenanceSettingsTab, SettingsTabBar } from "./settingsTabs";
 
 interface SettingsPageProps {
@@ -412,18 +413,12 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
-  const aiSettingsPayload = () => ({
-    baseUrl: aiBaseUrl.trim(),
-    model: aiModel.trim(),
-    apiKey: aiApiKey.trim(),
-  });
-
   const handleSaveAiSettings = async () => {
     setAiSaving(true);
     try {
       const data = await api<{ settings: AiSettings }>("/api/v1/ai/settings", {
         method: "PATCH",
-        body: JSON.stringify(aiSettingsPayload()),
+        body: JSON.stringify(buildAiSettingsPayload({ baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey })),
       });
       setAiBaseUrl(data.settings.baseUrl);
       setAiModel(data.settings.model);
@@ -442,7 +437,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     try {
       await api("/api/v1/ai/settings/test", {
         method: "POST",
-        body: JSON.stringify(aiSettingsPayload()),
+        body: JSON.stringify(buildAiSettingsPayload({ baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey })),
       });
       notify("AI 连接测试通过", "success");
     } catch (err) {
@@ -452,12 +447,6 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     }
   };
 
-  const migrationPayload = () => ({
-    baseUrl: migrationBaseUrl.trim(),
-    accessToken: migrationToken.trim(),
-    includeArchived: migrationIncludeArchived,
-  });
-
   const handlePreviewMigration = async () => {
     setMigrationPreviewing(true);
     setMigrationResult(null);
@@ -465,7 +454,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
     try {
       const data = await api<{ preview: MigrationPreview }>("/api/v1/migration/memos/preview", {
         method: "POST",
-        body: JSON.stringify(migrationPayload()),
+        body: JSON.stringify(buildMigrationPayload({ baseUrl: migrationBaseUrl, accessToken: migrationToken, includeArchived: migrationIncludeArchived })),
       });
       setMigrationPreview(data.preview);
       notify(`可迁移 ${data.preview.memoCount} 条备忘录`, "success");
@@ -501,7 +490,7 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
       truncated: false,
     });
     try {
-      const result = await runMigrationStream("/api/v1/migration/memos/import-stream", migrationPayload(), (progress) => {
+      const result = await runMigrationStream("/api/v1/migration/memos/import-stream", buildMigrationPayload({ baseUrl: migrationBaseUrl, accessToken: migrationToken, includeArchived: migrationIncludeArchived }), (progress) => {
         setMigrationProgress(progress);
       });
       setMigrationProgress(result);
@@ -651,22 +640,12 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
   };
 
   const attachmentSummary = attachmentCleanupSummary(unattachedAttachments);
-  const migrationBusy = migrationPreviewing || migrationImporting;
-  const migrationProgressVisible = migrationBusy || !!migrationProgress;
-  const migrationKnownTotal = migrationPreview?.memoCount || 0;
-  const migrationProgressPercent = migrationProgress && migrationKnownTotal > 0
-    ? Math.min(100, Math.round((migrationProgress.processed / migrationKnownTotal) * 100))
-    : null;
-  const migrationProgressTitle = migrationPreviewing
-    ? "正在预检源数据"
-    : migrationProgress?.phase === "done"
-      ? "迁移完成"
-      : "正在迁移备忘录";
-  const migrationProgressDetail = migrationPreviewing
-    ? "正在读取原版 Memos 列表和元信息"
-    : migrationProgress
-      ? `已处理 ${migrationProgress.processed}${migrationKnownTotal ? ` / ${migrationKnownTotal}` : ""} 条，导入 ${migrationProgress.imported} 条，跳过 ${migrationProgress.skipped} 条`
-      : "正在拉取并导入，完成后显示导入和跳过数量";
+  const migrationProgressView = buildMigrationProgressView({
+    previewing: migrationPreviewing,
+    importing: migrationImporting,
+    preview: migrationPreview,
+    progress: migrationProgress,
+  });
 
   return (
     <div class="settings-layout">
@@ -760,11 +739,11 @@ export function SettingsPage({ currentUser }: SettingsPageProps) {
           tagFrom={tagFrom}
           tagTo={tagTo}
           tagSaving={tagSaving}
-          migrationProgressVisible={migrationProgressVisible}
-          migrationKnownTotal={migrationKnownTotal}
-          migrationProgressPercent={migrationProgressPercent}
-          migrationProgressTitle={migrationProgressTitle}
-          migrationProgressDetail={migrationProgressDetail}
+          migrationProgressVisible={migrationProgressView.visible}
+          migrationKnownTotal={migrationProgressView.knownTotal}
+          migrationProgressPercent={migrationProgressView.percent}
+          migrationProgressTitle={migrationProgressView.title}
+          migrationProgressDetail={migrationProgressView.detail}
           onExport={handleExport}
           onImport={handleImport}
           onCreateBackup={handleCreateBackup}
