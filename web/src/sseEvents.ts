@@ -13,6 +13,8 @@ const REFRESH_EVENT_TYPES = new Set([
   "memo.comment.created",
   "reaction.upserted",
   "reaction.deleted",
+  "share.created",
+  "share.deleted",
 ]);
 
 export function shouldRefreshForSseEvent(event: unknown): event is MemoSseEvent {

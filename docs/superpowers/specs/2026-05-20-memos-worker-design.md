@@ -1,5 +1,7 @@
 # Memos → Cloudflare Workers 迁移设计文档
 
+> 归档说明：本文是 2026-05-20 的早期 TypeScript Worker 迁移草案，保留用于追溯当时的功能拆分和风险判断。当前运行架构已经切到 Rust Worker，入口为 `src/lib.rs`；实时事件采用 D1 补偿式 SSE，暂未落地 Durable Object 长连接广播。最新实现状态以仓库根目录 `README.md` 为准。
+>
 > 日期: 2026-05-20
 > 状态: Draft
 > 目标: 将 usememos/memos (Go) 分阶段迁移到 TypeScript + Cloudflare Workers

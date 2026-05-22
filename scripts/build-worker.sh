@@ -1,6 +1,11 @@
 #!/usr/bin/env sh
 set -eu
 
+if [ -f "$HOME/.cargo/env" ]; then
+  # shellcheck disable=SC1090
+  . "$HOME/.cargo/env"
+fi
+
 if ! command -v cargo >/dev/null 2>&1; then
   echo "Rust cargo is required to build the worker backend." >&2
   echo "Install Rust, then run: rustup target add wasm32-unknown-unknown" >&2

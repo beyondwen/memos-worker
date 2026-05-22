@@ -259,6 +259,8 @@ describe("SSE refresh policy", () => {
     expect(shouldRefreshForSseEvent({ type: "memo.bulk.updated", name: "memos/a" })).toBe(true);
     expect(shouldRefreshForSseEvent({ type: "memo.comment.created", name: "memos/a" })).toBe(true);
     expect(shouldRefreshForSseEvent({ type: "reaction.upserted", name: "memos/a" })).toBe(true);
+    expect(shouldRefreshForSseEvent({ type: "share.created", name: "memos/a" })).toBe(true);
+    expect(shouldRefreshForSseEvent({ type: "share.deleted", name: "memos/a" })).toBe(true);
   });
 
   it("ignores malformed events", () => {

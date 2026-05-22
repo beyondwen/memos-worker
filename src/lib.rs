@@ -21,6 +21,7 @@ const REFRESH_TTL: i64 = 30 * 24 * 60 * 60;
 const MIGRATION_PAGE_SIZE: usize = 100;
 const MIGRATION_MAX_MEMOS: usize = 10000;
 const SQL_IN_CHUNK_SIZE: usize = 50;
+const MEMO_EVENT_RETENTION_DAYS: i64 = 7;
 
 #[derive(Debug)]
 struct AppError {
@@ -352,6 +353,10 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     match create_scheduled_backup(&env).await {
         Ok(artifact) => console_log!("scheduled backup created: {}", artifact.key),
         Err(error) => console_log!("scheduled backup failed: {}", error.message),
+    }
+    match prune_memo_events(&env, MEMO_EVENT_RETENTION_DAYS).await {
+        Ok(deleted) => console_log!("memo event prune completed: {}", deleted),
+        Err(error) => console_log!("memo event prune failed: {}", error.message),
     }
 }
 
@@ -943,6 +948,7 @@ async fn bulk_memos(req: &mut Request, env: &Env, viewer: &Viewer) -> std::resul
                 .bind(&bind_with_first(now, &ids))?
                 .run()
                 .await?;
+            emit_bulk_memo_events(env, &memos, "ARCHIVE", ids.len(), 0, uids.len().saturating_sub(ids.len()), now, Some("ARCHIVED"), None).await;
             json_response(json!({ "updated": ids.len(), "deleted": 0, "skipped": uids.len().saturating_sub(ids.len()) }), 200).map_err(AppError::from)
         }
         "RESTORE" => {
@@ -950,20 +956,23 @@ async fn bulk_memos(req: &mut Request, env: &Env, viewer: &Viewer) -> std::resul
                 .bind(&bind_with_first(now, &ids))?
                 .run()
                 .await?;
+            emit_bulk_memo_events(env, &memos, "RESTORE", ids.len(), 0, uids.len().saturating_sub(ids.len()), now, Some("NORMAL"), None).await;
             json_response(json!({ "updated": ids.len(), "deleted": 0, "skipped": uids.len().saturating_sub(ids.len()) }), 200).map_err(AppError::from)
         }
         "DELETE" => {
             purge_ids(env, &ids).await?;
+            emit_bulk_memo_events(env, &memos, "DELETE", 0, ids.len(), uids.len().saturating_sub(ids.len()), now, None, None).await;
             json_response(json!({ "updated": 0, "deleted": ids.len(), "skipped": uids.len().saturating_sub(ids.len()) }), 200).map_err(AppError::from)
         }
         "VISIBILITY" => {
             let visibility = normalize_visibility(body.get("visibility").and_then(Value::as_str).unwrap_or(""))?;
-            let mut values = vec![visibility.into(), js_num(now)];
+            let mut values = vec![visibility.clone().into(), js_num(now)];
             values.extend(ids.iter().map(|id| js_num(*id)));
             db(env)?.prepare(format!("UPDATE memo SET visibility = ?, updated_ts = ? WHERE id IN ({})", placeholders))
                 .bind(&values)?
                 .run()
                 .await?;
+            emit_bulk_memo_events(env, &memos, "VISIBILITY", ids.len(), 0, uids.len().saturating_sub(ids.len()), now, None, Some(&visibility)).await;
             json_response(json!({ "updated": ids.len(), "deleted": 0, "skipped": uids.len().saturating_sub(ids.len()) }), 200).map_err(AppError::from)
         }
         _ => Err(AppError::new(400, "Invalid bulk action")),
@@ -1600,14 +1609,21 @@ async fn list_memo_events(env: &Env, viewer: &Viewer, since_id: Option<i64>) -> 
 }
 
 async fn emit_memo_event(env: &Env, event_type: &str, memo: &DbMemo) {
-    if let Err(error) = record_memo_event(env, event_type, memo).await {
+    emit_memo_change(env, event_type, memo, json!({})).await;
+}
+
+async fn emit_memo_change(env: &Env, event_type: &str, memo: &DbMemo, detail: Value) {
+    if let Err(error) = record_memo_event_with_detail(env, event_type, memo, detail.clone()).await {
         console_log!("memo event record failed: {}", error.message);
+    }
+    if let Err(error) = fire_memo_webhooks(env, event_type, memo, detail).await {
+        console_log!("memo webhook dispatch failed: {}", error.message);
     }
 }
 
-async fn record_memo_event(env: &Env, event_type: &str, memo: &DbMemo) -> std::result::Result<(), AppError> {
+async fn record_memo_event_with_detail(env: &Env, event_type: &str, memo: &DbMemo, detail: Value) -> std::result::Result<(), AppError> {
     ensure_memo_event_table(env).await?;
-    let payload = memo_event_payload(event_type, memo);
+    let payload = memo_event_payload_with_detail(event_type, memo, detail);
     db(env)?.prepare("INSERT INTO memo_event (created_ts, event_type, name, visibility, creator_id, payload) VALUES (?, ?, ?, ?, ?, ?)")
         .bind(&[
             js_num(unix_now()),
@@ -1622,6 +1638,34 @@ async fn record_memo_event(env: &Env, event_type: &str, memo: &DbMemo) -> std::r
     Ok(())
 }
 
+async fn emit_bulk_memo_events(
+    env: &Env,
+    memos: &[DbMemo],
+    action: &str,
+    updated: usize,
+    deleted: usize,
+    skipped: usize,
+    updated_ts: i64,
+    row_status: Option<&str>,
+    visibility: Option<&str>,
+) {
+    let detail = json!({
+        "action": action,
+        "updated": updated,
+        "deleted": deleted,
+        "skipped": skipped
+    });
+    for memo in memos {
+        let event_memo = DbMemo {
+            updated_ts,
+            row_status: row_status.unwrap_or(&memo.row_status).to_string(),
+            visibility: visibility.unwrap_or(&memo.visibility).to_string(),
+            ..memo.clone()
+        };
+        emit_memo_change(env, "memo.bulk.updated", &event_memo, detail.clone()).await;
+    }
+}
+
 fn memo_event_payload(event_type: &str, memo: &DbMemo) -> Value {
     json!({
         "type": event_type,
@@ -1629,6 +1673,70 @@ fn memo_event_payload(event_type: &str, memo: &DbMemo) -> Value {
         "visibility": memo.visibility,
         "creatorId": memo.creator_id
     })
+}
+
+fn memo_event_payload_with_detail(event_type: &str, memo: &DbMemo, detail: Value) -> Value {
+    let mut payload = memo_event_payload(event_type, memo);
+    if let Value::Object(base) = &mut payload {
+        match detail {
+            Value::Object(extra) => {
+                for (key, value) in extra {
+                    base.insert(key, value);
+                }
+            }
+            Value::Null => {}
+            other => {
+                base.insert("detail".to_string(), other);
+            }
+        }
+    }
+    payload
+}
+
+fn memo_webhook_body(event_type: &str, memo: &DbMemo, timestamp: i64, detail: Value) -> Value {
+    json!({
+        "event": event_type,
+        "timestamp": timestamp,
+        "payload": {
+            "memo": public_memo(memo.clone()),
+            "detail": detail
+        }
+    })
+}
+
+async fn fire_memo_webhooks(env: &Env, event_type: &str, memo: &DbMemo, detail: Value) -> std::result::Result<(), AppError> {
+    let rows = db(env)?.prepare("SELECT * FROM webhook WHERE creator_id = ? AND row_status = 'NORMAL' ORDER BY id")
+        .bind(&[js_num(memo.creator_id)])?
+        .all()
+        .await?;
+    let webhooks: Vec<DbWebhook> = rows.results()?;
+    if webhooks.is_empty() {
+        return Ok(());
+    }
+    let body = memo_webhook_body(event_type, memo, unix_now(), detail).to_string();
+    for webhook in webhooks {
+        if let Err(error) = send_and_record_webhook(env, webhook.id, memo.creator_id, &webhook.url, event_type, &body).await {
+            console_log!("webhook delivery failed: {}", error.message);
+        }
+    }
+    Ok(())
+}
+
+async fn prune_memo_events(env: &Env, retention_days: i64) -> std::result::Result<i64, AppError> {
+    ensure_memo_event_table(env).await?;
+    let cutoff = memo_event_retention_cutoff(unix_now(), retention_days);
+    db(env)?.prepare("DELETE FROM memo_event WHERE created_ts < ?")
+        .bind(&[js_num(cutoff)])?
+        .run()
+        .await?;
+    let count: Option<i64> = db(env)?.prepare("SELECT changes() AS count")
+        .first(Some("count"))
+        .await?;
+    Ok(count.unwrap_or(0))
+}
+
+fn memo_event_retention_cutoff(now: i64, retention_days: i64) -> i64 {
+    now - retention_days.max(0) * 24 * 60 * 60
 }
 
 async fn ensure_memo_event_table(env: &Env) -> std::result::Result<(), AppError> {
@@ -1690,6 +1798,7 @@ async fn create_share(req: &mut Request, env: &Env, viewer: &Viewer, uid: &str) 
         ])?
         .run()
         .await?;
+    emit_memo_change(env, "share.created", &memo, json!({ "shareUid": share_uid.clone(), "expiresTs": expires_ts })).await;
     json_response(json!({
         "share": {
             "uid": share_uid,
@@ -1737,6 +1846,7 @@ async fn delete_share(env: &Env, viewer: &Viewer, uid: &str, share_id: &str) -> 
         .bind(&[js_num(id)])?
         .run()
         .await?;
+    emit_memo_change(env, "share.deleted", &memo, json!({ "shareId": share.id, "shareUid": share.uid })).await;
     json_response(json!({ "ok": true }), 200).map_err(AppError::from)
 }
 
@@ -2296,6 +2406,27 @@ fn public_inbox_item(row: DbInboxRow) -> Value {
     })
 }
 
+async fn record_comment_inbox(env: &Env, sender_id: i64, receiver_id: i64, parent_uid: &str, comment_uid: &str) -> std::result::Result<(), AppError> {
+    db(env)?.prepare("INSERT INTO inbox (created_ts, sender_id, receiver_id, status, message) VALUES (?, ?, ?, 'UNREAD', ?)")
+        .bind(&[
+            js_num(unix_now()),
+            js_num(sender_id),
+            js_num(receiver_id),
+            comment_inbox_message(parent_uid, comment_uid).to_string().into(),
+        ])?
+        .run()
+        .await?;
+    Ok(())
+}
+
+fn comment_inbox_message(parent_uid: &str, comment_uid: &str) -> Value {
+    json!({
+        "type": "memo.comment.created",
+        "memoUid": parent_uid,
+        "commentUid": comment_uid
+    })
+}
+
 fn safe_inbox_message(value: &str) -> Value {
     serde_json::from_str::<Value>(value).unwrap_or_else(|_| json!({ "type": "unknown" }))
 }
@@ -2541,8 +2672,11 @@ async fn create_comment(req: &mut Request, env: &Env, viewer: &Viewer, parent_ui
         .bind(&[js_num(parent.id), js_num(comment.id)])?
         .run()
         .await?;
-    emit_memo_event(env, "memo.created", &comment).await;
-    emit_memo_event(env, "memo.comment.created", &parent).await;
+    if let Err(error) = record_comment_inbox(env, viewer.id, parent.creator_id, &parent.uid, &comment.uid).await {
+        console_log!("comment inbox record failed: {}", error.message);
+    }
+    emit_memo_change(env, "memo.created", &comment, json!({ "parentMemoUid": parent.uid.clone() })).await;
+    emit_memo_change(env, "memo.comment.created", &parent, json!({ "comment": public_memo(comment.clone()) })).await;
     let comment = memo_with_attachments(env, comment).await?;
     json_response(json!({ "memo": comment }), 201).map_err(AppError::from)
 }
@@ -2569,7 +2703,7 @@ async fn upsert_reaction(req: &mut Request, env: &Env, viewer: &Viewer, uid: &st
         .bind(&[js_num(unix_now()), js_num(viewer.id), js_num(memo.id), reaction_type.into()])?
         .run()
         .await?;
-    emit_memo_event(env, "reaction.upserted", &memo).await;
+    emit_memo_change(env, "reaction.upserted", &memo, json!({ "reactionType": reaction_type, "actorId": viewer.id })).await;
     list_reactions_for_memo(env, memo.id).await
 }
 
@@ -2589,7 +2723,7 @@ async fn delete_reaction(env: &Env, viewer: &Viewer, uid: &str, reaction_id: &st
         .bind(&[js_num(id)])?
         .run()
         .await?;
-    emit_memo_event(env, "reaction.deleted", &memo).await;
+    emit_memo_change(env, "reaction.deleted", &memo, json!({ "reactionId": id, "actorId": viewer.id })).await;
     list_reactions_for_memo(env, memo.id).await
 }
 
@@ -2654,6 +2788,7 @@ async fn set_relations(req: &mut Request, env: &Env, viewer: &Viewer, uid: &str)
             }
         }
     }
+    emit_memo_change(env, "memo.updated", &memo, json!({ "relationsUpdated": true })).await;
     get_relations(env, viewer, uid).await
 }
 
@@ -3587,6 +3722,76 @@ mod tests {
                 "creatorId": 7
             })
         );
+    }
+
+    #[test]
+    fn memo_event_payload_merges_detail_fields() {
+        let memo = sample_memo();
+
+        assert_eq!(
+            memo_event_payload_with_detail(
+                "memo.bulk.updated",
+                &memo,
+                json!({ "action": "ARCHIVE", "updated": 2, "deleted": 0 })
+            ),
+            json!({
+                "type": "memo.bulk.updated",
+                "name": "memos/m_1",
+                "visibility": "PRIVATE",
+                "creatorId": 7,
+                "action": "ARCHIVE",
+                "updated": 2,
+                "deleted": 0
+            })
+        );
+    }
+
+    #[test]
+    fn memo_webhook_body_wraps_event_timestamp_and_public_memo() {
+        let memo = sample_memo();
+
+        assert_eq!(
+            memo_webhook_body("memo.updated", &memo, 1779345600, json!({ "source": "test" })),
+            json!({
+                "event": "memo.updated",
+                "timestamp": 1779345600,
+                "payload": {
+                    "memo": {
+                        "name": "memos/m_1",
+                        "id": 1,
+                        "uid": "m_1",
+                        "creator": { "id": 7, "username": "alice", "nickname": "Alice" },
+                        "createdTs": 10,
+                        "updatedTs": 11,
+                        "rowStatus": "NORMAL",
+                        "content": "hello",
+                        "visibility": "PRIVATE",
+                        "pinned": false,
+                        "payload": {},
+                        "attachments": []
+                    },
+                    "detail": { "source": "test" }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn comment_inbox_message_points_to_parent_and_comment() {
+        assert_eq!(
+            comment_inbox_message("m_parent", "m_comment"),
+            json!({
+                "type": "memo.comment.created",
+                "memoUid": "m_parent",
+                "commentUid": "m_comment"
+            })
+        );
+    }
+
+    #[test]
+    fn memo_event_retention_cutoff_uses_whole_days() {
+        assert_eq!(memo_event_retention_cutoff(1_000_000, 7), 395_200);
+        assert_eq!(memo_event_retention_cutoff(1_000_000, -1), 1_000_000);
     }
 
     #[test]
