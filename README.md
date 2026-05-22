@@ -121,7 +121,7 @@ npm run deploy
 部署拆分为两部分：
 
 - `npm run deploy:api`：部署 Rust Worker 后端，只承载 `/api/*`、`/file/*`、定时任务、D1 和 R2。
-- `npm run deploy:web`：部署 `dist/static` 到 Cloudflare Pages，默认项目名为 `memos-worker-web`。
+- `npm run deploy:web`：部署 `dist/static` 到 Cloudflare Pages，默认项目名为 `memos-worker-pages`。
 
 推荐在 Cloudflare 上使用同一个自定义域名拆路由：
 
