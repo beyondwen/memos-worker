@@ -48,6 +48,8 @@ mod usememos_import;
 pub(crate) use usememos_import::*;
 mod usememos_pipeline;
 pub(crate) use usememos_pipeline::*;
+mod usememos_backup;
+pub(crate) use usememos_backup::*;
 mod usememos_transform;
 pub(crate) use usememos_transform::*;
 mod sse;

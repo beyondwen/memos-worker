@@ -59,3 +59,13 @@ pub(crate) struct MigrationProgress {
     pub(crate) truncated: bool,
     pub(crate) state: Option<String>,
 }
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OriginalBackupResult {
+    pub(crate) memo_count: usize,
+    pub(crate) pushed: usize,
+    pub(crate) skipped: usize,
+    pub(crate) archived_count: usize,
+    pub(crate) truncated: bool,
+}

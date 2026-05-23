@@ -54,6 +54,9 @@ pub(crate) async fn authed_route(
     if path == "/api/v1/migration/memos/import-stream" && method == Method::Post {
         return migration_import_stream(req, env, &viewer).await;
     }
+    if path == "/api/v1/migration/memos/backup-to-original" && method == Method::Post {
+        return backup_to_original_memos(req, env, &viewer).await;
+    }
     if path == "/api/v1/tags" && method == Method::Get {
         return list_tags(env, &viewer).await;
     }

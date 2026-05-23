@@ -24,7 +24,7 @@ import { shouldAutoLoadNextMemoPage } from "../web/src/memoListPaging";
 import { MEMO_LIST_SSE_REFRESH_DEBOUNCE_MS, scheduleDebouncedRefresh } from "../web/src/sseRefresh";
 import { personalPrimaryNavItems, personalSettingsTabs } from "../web/src/personalMode";
 import { buildAiSettingsPayload, buildMigrationProgressView } from "../web/src/pages/settingsPageHelpers";
-import { SETTINGS_TABS } from "../web/src/pages/settingsModel";
+import { auditLogDetail, SETTINGS_TABS } from "../web/src/pages/settingsModel";
 import { buildCalendarEventMap, buildCalendarWeeks, shiftMonth } from "../web/src/calendarView";
 import { dateTimeLocalToUnix, extractHashTags, formatDateTimeLocalLabel, unixToDateTimeLocal } from "../web/src/richText";
 
@@ -547,5 +547,17 @@ describe("settings page helpers", () => {
       percent: 100,
       title: "迁移完成",
     });
+  });
+
+  it("labels usememos export audit logs as backups", () => {
+    expect(auditLogDetail({
+      id: 1,
+      createdTs: 1,
+      actorUsername: "admin",
+      action: "migration.usememos.export",
+      actionLabel: "backup",
+      target: "usememos",
+      detail: { pushed: 0, skipped: 3, memoCount: 3 },
+    })).toBe("备份 0，跳过 3，总计 3");
   });
 });

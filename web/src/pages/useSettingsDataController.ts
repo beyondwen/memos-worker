@@ -8,6 +8,7 @@ import type {
   MigrationPreview,
   MigrationProgress,
   MigrationResult,
+  OriginalBackupResult,
   SystemHealth,
   TagItem,
 } from "./settingsModel";
@@ -48,8 +49,10 @@ export function useSettingsDataController({
   const [migrationPreview, setMigrationPreview] = useState<MigrationPreview | null>(null);
   const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
   const [migrationProgress, setMigrationProgress] = useState<MigrationProgress | null>(null);
+  const [originalBackupResult, setOriginalBackupResult] = useState<OriginalBackupResult | null>(null);
   const [migrationPreviewing, setMigrationPreviewing] = useState(false);
   const [migrationImporting, setMigrationImporting] = useState(false);
+  const [originalBackuping, setOriginalBackuping] = useState(false);
   const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
   const [aiModel, setAiModel] = useState("gpt-4o-mini");
   const [aiApiKey, setAiApiKey] = useState("");
@@ -188,6 +191,7 @@ export function useSettingsDataController({
     setMigrationPreview(null);
     setMigrationResult(null);
     setMigrationProgress(null);
+    setOriginalBackupResult(null);
   };
 
   const handleMigrationBaseUrlChange = (value: string) => {
@@ -262,6 +266,76 @@ export function useSettingsDataController({
       notify(`迁移失败：${(err as Error).message}`, "error");
     } finally {
       setMigrationImporting(false);
+    }
+  };
+
+  const backupToOriginal = async () => {
+    const data = await api<{ result: OriginalBackupResult }>("/api/v1/migration/memos/backup-to-original", {
+      method: "POST",
+      body: JSON.stringify(buildMigrationPayload({ baseUrl: migrationBaseUrl, accessToken: migrationToken, includeArchived: migrationIncludeArchived })),
+    });
+    setOriginalBackupResult(data.result);
+    await refreshAuditLogs();
+    return data.result;
+  };
+
+  const handleBackupToOriginal = async () => {
+    const ok = await confirm({
+      title: "备份到原版 Memos？",
+      message: "会把当前账号中尚未推送到该原版 Memos 的备忘录创建过去，不会删除或覆盖原版数据。",
+      confirmText: "开始备份",
+    });
+    if (!ok) return;
+    setOriginalBackuping(true);
+    setOriginalBackupResult(null);
+    try {
+      const result = await backupToOriginal();
+      notify(`已备份 ${result.pushed} 条，跳过 ${result.skipped} 条`, "success");
+    } catch (err) {
+      notify(`备份到原版失败：${(err as Error).message}`, "error");
+    } finally {
+      setOriginalBackuping(false);
+    }
+  };
+
+  const handleRunMutualBackup = async () => {
+    const ok = await confirm({
+      title: "开始互相备份？",
+      message: "会先从原版 Memos 拉取缺失内容，再把当前系统中本地新增且未备份过的内容创建到原版 Memos。不会删除或覆盖两边已有数据。",
+      confirmText: "互相备份",
+    });
+    if (!ok) return;
+    setMigrationImporting(true);
+    setOriginalBackuping(true);
+    setMigrationResult(null);
+    setOriginalBackupResult(null);
+    setMigrationProgress({
+      phase: "fetching",
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      memoCount: 0,
+      attachmentCount: 0,
+      relationCount: 0,
+      archivedCount: 0,
+      truncated: false,
+    });
+    try {
+      const importResult = await runMigrationStream("/api/v1/migration/memos/import-stream", buildMigrationPayload({ baseUrl: migrationBaseUrl, accessToken: migrationToken, includeArchived: migrationIncludeArchived }), (progress) => {
+        setMigrationProgress(progress);
+      });
+      setMigrationProgress(importResult);
+      setMigrationResult(importResult);
+      setMigrationPreview(importResult);
+      await fetchTags();
+      await refreshOverview();
+      const backupResult = await backupToOriginal();
+      notify(`互相备份完成：导入 ${importResult.imported} 条，备份 ${backupResult.pushed} 条`, "success");
+    } catch (err) {
+      notify(`互相备份失败：${(err as Error).message}`, "error");
+    } finally {
+      setMigrationImporting(false);
+      setOriginalBackuping(false);
     }
   };
 
@@ -384,8 +458,10 @@ export function useSettingsDataController({
     migrationPreview,
     migrationResult,
     migrationProgress,
+    originalBackupResult,
     migrationPreviewing,
     migrationImporting,
+    originalBackuping,
     tags,
     tagFrom,
     tagTo,
@@ -415,6 +491,8 @@ export function useSettingsDataController({
     onMigrationIncludeArchivedChange: handleMigrationIncludeArchivedChange,
     onPreviewMigration: handlePreviewMigration,
     onRunMigration: handleRunMigration,
+    onBackupToOriginal: handleBackupToOriginal,
+    onRunMutualBackup: handleRunMutualBackup,
     onTagFromChange: setTagFrom,
     onTagToChange: setTagTo,
     onRenameTag: handleRenameTag,

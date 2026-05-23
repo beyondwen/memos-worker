@@ -4,6 +4,7 @@ import type {
   MigrationPreview,
   MigrationProgress,
   MigrationResult,
+  OriginalBackupResult,
   SystemHealth,
   TagItem,
 } from "./settingsModel";
@@ -29,8 +30,10 @@ interface DataSettingsTabProps {
   migrationPreview: MigrationPreview | null;
   migrationResult: MigrationResult | null;
   migrationProgress: MigrationProgress | null;
+  originalBackupResult: OriginalBackupResult | null;
   migrationPreviewing: boolean;
   migrationImporting: boolean;
+  originalBackuping: boolean;
   tags: TagItem[];
   tagFrom: string;
   tagTo: string;
@@ -60,6 +63,8 @@ interface DataSettingsTabProps {
   onMigrationIncludeArchivedChange: (value: boolean) => void;
   onPreviewMigration: () => void;
   onRunMigration: () => void;
+  onBackupToOriginal: () => void;
+  onRunMutualBackup: () => void;
   onTagFromChange: (value: string) => void;
   onTagToChange: (value: string) => void;
   onRenameTag: (event: Event) => void;
@@ -81,8 +86,10 @@ export function DataSettingsTab({
   migrationPreview,
   migrationResult,
   migrationProgress,
+  originalBackupResult,
   migrationPreviewing,
   migrationImporting,
+  originalBackuping,
   tags,
   tagFrom,
   tagTo,
@@ -112,6 +119,8 @@ export function DataSettingsTab({
   onMigrationIncludeArchivedChange,
   onPreviewMigration,
   onRunMigration,
+  onBackupToOriginal,
+  onRunMutualBackup,
   onTagFromChange,
   onTagToChange,
   onRenameTag,
@@ -158,8 +167,10 @@ export function DataSettingsTab({
         migrationPreview={migrationPreview}
         migrationResult={migrationResult}
         migrationProgress={migrationProgress}
+        originalBackupResult={originalBackupResult}
         migrationPreviewing={migrationPreviewing}
         migrationImporting={migrationImporting}
+        originalBackuping={originalBackuping}
         migrationProgressVisible={migrationProgressVisible}
         migrationKnownTotal={migrationKnownTotal}
         migrationProgressPercent={migrationProgressPercent}
@@ -170,6 +181,8 @@ export function DataSettingsTab({
         onMigrationIncludeArchivedChange={onMigrationIncludeArchivedChange}
         onPreviewMigration={onPreviewMigration}
         onRunMigration={onRunMigration}
+        onBackupToOriginal={onBackupToOriginal}
+        onRunMutualBackup={onRunMutualBackup}
       />
 
       <TagManagementSection

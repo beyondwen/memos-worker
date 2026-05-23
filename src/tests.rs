@@ -593,6 +593,49 @@ fn relation_suggestions_payload_includes_ai_fallback_warning() {
     assert_eq!(payload["warning"], "AI API returned HTTP 502");
 }
 
+#[test]
+fn original_backup_skip_policy_avoids_duplicate_remote_creates() {
+    let synced = DbMemo {
+        payload: json!({
+            "sync": {
+                "usememos": {
+                    "baseUrl": "https://memos.example.com",
+                    "pushedAt": "2026-05-23T10:00:00Z"
+                }
+            }
+        })
+        .to_string(),
+        ..sample_memo()
+    };
+    let imported = DbMemo {
+        payload: json!({
+            "source": {
+                "type": "usememos",
+                "originalName": "memos/abc"
+            }
+        })
+        .to_string(),
+        ..sample_memo()
+    };
+    let unsynced = DbMemo {
+        payload: "{}".to_string(),
+        ..sample_memo()
+    };
+
+    assert!(should_skip_original_backup(
+        &synced,
+        "https://memos.example.com"
+    ));
+    assert!(should_skip_original_backup(
+        &imported,
+        "https://memos.example.com"
+    ));
+    assert!(!should_skip_original_backup(
+        &unsynced,
+        "https://memos.example.com"
+    ));
+}
+
 fn sample_memo() -> DbMemo {
     DbMemo {
         id: 1,

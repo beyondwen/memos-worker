@@ -57,6 +57,14 @@ export interface MigrationProgress extends MigrationResult {
   state?: string;
 }
 
+export interface OriginalBackupResult {
+  memoCount: number;
+  pushed: number;
+  skipped: number;
+  archivedCount: number;
+  truncated: boolean;
+}
+
 export interface AiSettings {
   baseUrl: string;
   model: string;
@@ -137,10 +145,12 @@ export function auditLogDetail(log: AuditLog): string {
   const detail = log.detail ?? {};
   if (log.action?.startsWith("migration.usememos")) {
     const imported = Number(detail.imported ?? 0);
+    const pushed = Number(detail.pushed ?? 0);
     const skipped = Number(detail.skipped ?? 0);
     const total = Number(detail.memoCount ?? 0);
     const error = typeof detail.error === "string" ? detail.error : "";
     if (error) return error;
+    if (log.action === "migration.usememos.export") return `备份 ${pushed}，跳过 ${skipped}，总计 ${total}`;
     if (total || imported || skipped) return `导入 ${imported}，跳过 ${skipped}，总计 ${total}`;
     const baseUrl = typeof detail.baseUrl === "string" ? detail.baseUrl : "";
     return baseUrl ? `来源 ${baseUrl}` : log.target;

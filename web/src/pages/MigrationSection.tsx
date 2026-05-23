@@ -1,4 +1,4 @@
-import type { MigrationPreview, MigrationProgress, MigrationResult } from "./settingsModel";
+import type { MigrationPreview, MigrationProgress, MigrationResult, OriginalBackupResult } from "./settingsModel";
 
 interface MigrationSectionProps {
   migrationBaseUrl: string;
@@ -7,8 +7,10 @@ interface MigrationSectionProps {
   migrationPreview: MigrationPreview | null;
   migrationResult: MigrationResult | null;
   migrationProgress: MigrationProgress | null;
+  originalBackupResult: OriginalBackupResult | null;
   migrationPreviewing: boolean;
   migrationImporting: boolean;
+  originalBackuping: boolean;
   migrationProgressVisible: boolean;
   migrationKnownTotal: number;
   migrationProgressPercent: number | null;
@@ -19,6 +21,8 @@ interface MigrationSectionProps {
   onMigrationIncludeArchivedChange: (value: boolean) => void;
   onPreviewMigration: () => void;
   onRunMigration: () => void;
+  onBackupToOriginal: () => void;
+  onRunMutualBackup: () => void;
 }
 
 export function MigrationSection({
@@ -28,8 +32,10 @@ export function MigrationSection({
   migrationPreview,
   migrationResult,
   migrationProgress,
+  originalBackupResult,
   migrationPreviewing,
   migrationImporting,
+  originalBackuping,
   migrationProgressVisible,
   migrationKnownTotal,
   migrationProgressPercent,
@@ -40,11 +46,14 @@ export function MigrationSection({
   onMigrationIncludeArchivedChange,
   onPreviewMigration,
   onRunMigration,
+  onBackupToOriginal,
+  onRunMutualBackup,
 }: MigrationSectionProps) {
-  const migrationBusy = migrationPreviewing || migrationImporting;
+  const migrationBusy = migrationPreviewing || migrationImporting || originalBackuping;
+  const formReady = !!migrationBaseUrl.trim() && !!migrationToken.trim();
   return (
     <div class="settings-section">
-      <h2>从原版 Memos 迁移</h2>
+      <h2>原版 Memos 互相备份</h2>
       <div class="migration-form">
         <div class="form-group">
           <label class="form-label">原版 Memos 地址</label>
@@ -80,16 +89,30 @@ export function MigrationSection({
         <button
           class="btn btn-secondary"
           onClick={onPreviewMigration}
-          disabled={migrationBusy || !migrationBaseUrl.trim() || !migrationToken.trim()}
+          disabled={migrationBusy || !formReady}
         >
           {migrationPreviewing ? "预检中..." : "预检"}
         </button>
         <button
-          class="btn btn-primary"
+          class="btn btn-secondary"
           onClick={onRunMigration}
-          disabled={migrationBusy || !migrationBaseUrl.trim() || !migrationToken.trim()}
+          disabled={migrationBusy || !formReady}
         >
-          {migrationImporting ? "迁移中..." : "开始迁移"}
+          {migrationImporting ? "拉取中..." : "从原版拉取"}
+        </button>
+        <button
+          class="btn btn-secondary"
+          onClick={onBackupToOriginal}
+          disabled={migrationBusy || !formReady}
+        >
+          {originalBackuping && !migrationImporting ? "备份中..." : "备份到原版"}
+        </button>
+        <button
+          class="btn btn-primary"
+          onClick={onRunMutualBackup}
+          disabled={migrationBusy || !formReady}
+        >
+          {migrationImporting && originalBackuping ? "互相备份中..." : "互相备份"}
         </button>
       </div>
       {migrationProgressVisible && (
@@ -136,8 +159,17 @@ export function MigrationSection({
           )}
         </div>
       )}
+      {originalBackupResult && (
+        <div class="migration-summary">
+          <span>本地备忘录 {originalBackupResult.memoCount}</span>
+          <span>已备份到原版 {originalBackupResult.pushed}</span>
+          <span>已跳过 {originalBackupResult.skipped}</span>
+          <span>归档 {originalBackupResult.archivedCount}</span>
+          {originalBackupResult.truncated && <span>已达到单次上限</span>}
+        </div>
+      )}
       <div class="muted-line">
-        附件文件不会在第一版中下载，只会保留原始附件和引用元信息。
+        拉取会跳过重复原版记录；备份到原版只创建当前系统中尚未推送过的本地备忘录，不会删除或覆盖原版数据。附件文件仍只保留元信息。
       </div>
     </div>
   );
