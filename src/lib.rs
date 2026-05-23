@@ -121,18 +121,24 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
 }
 
 #[event(scheduled)]
-async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    match create_scheduled_backup(&env).await {
-        Ok(artifact) => console_log!("scheduled backup created: {}", artifact.key),
-        Err(error) => console_log!("scheduled backup failed: {}", error.message),
+async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    match process_pending_relation_rebuild_tasks(&env).await {
+        Ok(_) => console_log!("relation rebuild scheduler completed"),
+        Err(error) => console_log!("relation rebuild scheduler failed: {}", error.message),
     }
-    match prune_memo_events(&env, MEMO_EVENT_RETENTION_DAYS).await {
-        Ok(deleted) => console_log!("memo event prune completed: {}", deleted),
-        Err(error) => console_log!("memo event prune failed: {}", error.message),
-    }
-    match prune_auth_records(&env, AUTH_RECORD_RETENTION_DAYS).await {
-        Ok(deleted) => console_log!("auth record prune completed: {}", deleted),
-        Err(error) => console_log!("auth record prune failed: {}", error.message),
+    if event.cron() == "0 18 * * *" {
+        match create_scheduled_backup(&env).await {
+            Ok(artifact) => console_log!("scheduled backup created: {}", artifact.key),
+            Err(error) => console_log!("scheduled backup failed: {}", error.message),
+        }
+        match prune_memo_events(&env, MEMO_EVENT_RETENTION_DAYS).await {
+            Ok(deleted) => console_log!("memo event prune completed: {}", deleted),
+            Err(error) => console_log!("memo event prune failed: {}", error.message),
+        }
+        match prune_auth_records(&env, AUTH_RECORD_RETENTION_DAYS).await {
+            Ok(deleted) => console_log!("auth record prune completed: {}", deleted),
+            Err(error) => console_log!("auth record prune failed: {}", error.message),
+        }
     }
 }
 

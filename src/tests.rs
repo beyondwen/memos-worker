@@ -118,6 +118,17 @@ fn security_and_index_migration_creates_rate_limit_and_memo_index_tables() {
 }
 
 #[test]
+fn relation_rebuild_migration_creates_task_snapshot_tables() {
+    let migration = std::fs::read_to_string("migrations/0008_relation_rebuild_tasks.sql")
+        .expect("relation rebuild migration");
+
+    assert!(migration.contains("CREATE TABLE IF NOT EXISTS relation_rebuild_task"));
+    assert!(migration.contains("CREATE TABLE IF NOT EXISTS relation_rebuild_candidate"));
+    assert!(migration.contains("idx_relation_rebuild_task_status"));
+    assert!(migration.contains("idx_relation_rebuild_candidate_user"));
+}
+
+#[test]
 fn backup_encryption_keyring_parses_json_and_comma_formats() {
     let json_keys = parse_backup_encryption_keys(r#"{"old":"secret-old","new":"secret-new"}"#);
     assert!(json_keys.contains(&BackupEncryptionKey {

@@ -116,12 +116,26 @@ export function useSettingsDataController({
     }
   }, [currentUser, notify]);
 
+  const fetchRelationRebuildProgress = useCallback(async () => {
+    if (!currentUser || currentUser.role !== "ADMIN") return;
+    try {
+      const data = await api<{ progress: RelationRebuildProgress | null }>("/api/v1/relations/rebuild", {
+        method: "POST",
+        body: JSON.stringify({ action: "latest" }),
+      });
+      setRelationRebuildProgress(data.progress);
+    } catch (err) {
+      reportSettingsLoadError("全库关联任务", err);
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     fetchBackups();
     fetchAiSettings();
     fetchTags();
     fetchSystemHealth();
-  }, [fetchAiSettings, fetchBackups, fetchSystemHealth, fetchTags]);
+    fetchRelationRebuildProgress();
+  }, [fetchAiSettings, fetchBackups, fetchRelationRebuildProgress, fetchSystemHealth, fetchTags]);
 
   const handleExport = async () => {
     try {
@@ -425,39 +439,28 @@ export function useSettingsDataController({
     setRebuildingRelations(true);
     setRelationRebuildProgress(null);
     try {
-      let cursor: number | null = 0;
-      let totalCreated = 0;
-      let totalUpdated = 0;
-      let totalSkipped = 0;
-      let warnings: string[] = [];
-      while (cursor !== null) {
-        const payload = {
-          cursor,
+      const started: { progress: RelationRebuildProgress } = await api("/api/v1/relations/rebuild", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "start",
           mode: "supplement",
-          accumulatedCreated: totalCreated,
-          accumulatedUpdated: totalUpdated,
-          accumulatedSkipped: totalSkipped,
-        };
+        }),
+      });
+      let progress = started.progress;
+      setRelationRebuildProgress(progress);
+      while (!progress.done) {
         const data: { progress: RelationRebuildProgress } = await api("/api/v1/relations/rebuild", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            action: "step",
+            taskId: progress.taskId,
+          }),
         });
-        totalCreated += data.progress.created;
-        totalUpdated += data.progress.updated;
-        totalSkipped += data.progress.skipped;
-        warnings = [...warnings, ...data.progress.warnings].slice(0, 3);
-        const merged = {
-          ...data.progress,
-          created: totalCreated,
-          updated: totalUpdated,
-          skipped: totalSkipped,
-          warnings,
-        };
-        setRelationRebuildProgress(merged);
-        cursor = data.progress.done ? null : data.progress.nextCursor ?? null;
+        progress = data.progress;
+        setRelationRebuildProgress(progress);
       }
       await refreshAuditLogs();
-      notify(`全库关联完成，写入 ${totalCreated} 条关联`, "success");
+      notify(`全库关联完成，写入 ${progress.created} 条关联`, "success");
     } catch (err) {
       notify(`全库关联失败：${(err as Error).message}`, "error");
     } finally {

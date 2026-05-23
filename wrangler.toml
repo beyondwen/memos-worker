@@ -32,4 +32,4 @@ tag = "v2"
 deleted_classes = ["SSEHub"]
 
 [triggers]
-crons = ["0 18 * * *"]
+crons = ["*/5 * * * *", "0 18 * * *"]
