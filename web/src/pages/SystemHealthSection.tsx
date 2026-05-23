@@ -96,6 +96,7 @@ function relationRebuildPercent(progress: RelationRebuildProgress) {
 
 function relationRebuildTitle(progress: RelationRebuildProgress) {
   if (progress.done) return "全库关联完成";
+  if (progress.status === "SNAPSHOTTING") return "正在准备关联快照";
   if (progress.status === "INDEXING") return "正在准备关联索引";
   return "正在重建知识关联";
 }

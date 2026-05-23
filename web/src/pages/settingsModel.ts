@@ -106,7 +106,7 @@ export interface SystemHealth {
 
 export interface RelationRebuildProgress {
   taskId: string;
-  status: "INDEXING" | "RUNNING" | "DONE" | "FAILED" | "CANCELED";
+  status: "SNAPSHOTTING" | "INDEXING" | "RUNNING" | "DONE" | "FAILED" | "CANCELED";
   mode: "supplement" | "replace";
   total: number;
   processed: number;
