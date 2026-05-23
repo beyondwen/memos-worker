@@ -37,7 +37,7 @@ export function SystemHealthSection({
           {rebuildingIndex ? "重建中..." : "重建索引"}
         </button>
         <button class="btn btn-ghost btn-sm" onClick={onRebuildRelations} disabled={rebuildingRelations}>
-          {rebuildingRelations ? "关联中..." : "全库 AI 关联"}
+          {rebuildingRelations ? "关联中..." : "补充全库 AI 关联"}
         </button>
       </div>
       {relationRebuildProgress && (

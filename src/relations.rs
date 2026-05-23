@@ -201,8 +201,10 @@ fn relation_uid_from_ref(value: &str) -> String {
 }
 
 pub(crate) fn local_relation_suggestions(ranked: &[RankedRelationCandidate]) -> Vec<Value> {
+    const MIN_LOCAL_RELATION_SCORE: f64 = 4.0;
     ranked
         .iter()
+        .filter(|candidate| candidate.score >= MIN_LOCAL_RELATION_SCORE)
         .take(8)
         .map(|candidate| {
             json!({

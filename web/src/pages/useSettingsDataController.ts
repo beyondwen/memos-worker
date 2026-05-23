@@ -417,9 +417,9 @@ export function useSettingsDataController({
 
   const handleRebuildRelations = async () => {
     const ok = await confirm({
-      title: "全库 AI 关联？",
-      message: "会分批扫描当前账号全部正常备忘录，为每篇重建引用关系。已存在的出站引用会按本次结果刷新。",
-      confirmText: "开始关联",
+      title: "补充全库 AI 关联？",
+      message: "会分批扫描当前账号全部正常备忘录，只补充高置信候选，不覆盖已有手动引用。",
+      confirmText: "开始补充",
     });
     if (!ok) return;
     setRebuildingRelations(true);
@@ -433,6 +433,7 @@ export function useSettingsDataController({
       while (cursor !== null) {
         const payload = {
           cursor,
+          mode: "supplement",
           accumulatedCreated: totalCreated,
           accumulatedUpdated: totalUpdated,
           accumulatedSkipped: totalSkipped,

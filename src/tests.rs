@@ -577,6 +577,27 @@ fn relation_ranking_uses_chinese_content_beyond_recent_items() {
 }
 
 #[test]
+fn local_relation_suggestions_ignore_weak_recency_only_matches() {
+    let weak = RankedRelationCandidate {
+        uid: "m_recent".to_string(),
+        content: "普通生活记录".to_string(),
+        score: 0.9,
+        tags: Vec::new(),
+    };
+    let strong = RankedRelationCandidate {
+        uid: "m_related".to_string(),
+        content: "英语阅读和长难句拆解".to_string(),
+        score: 6.0,
+        tags: Vec::new(),
+    };
+
+    let suggestions = local_relation_suggestions(&[weak, strong]);
+
+    assert_eq!(suggestions.len(), 1);
+    assert_eq!(suggestions[0]["memo"], "memos/m_related");
+}
+
+#[test]
 fn requested_relation_uids_normalizes_deduplicates_and_skips_self() {
     let body = json!({
         "relations": [

@@ -1,8 +1,11 @@
 use super::*;
 
-const RELATION_REBUILD_BATCH_SIZE: i64 = 3;
+const RELATION_REBUILD_BATCH_SIZE: i64 = 8;
 const RELATION_REBUILD_CANDIDATE_LIMIT: i64 = 5000;
 const RELATION_REBUILD_AI_CANDIDATE_LIMIT: usize = 45;
+const RELATION_REBUILD_MAX_RELATIONS_PER_MEMO: usize = 12;
+const RELATION_REBUILD_MIN_LOCAL_SCORE: f64 = 4.0;
+const RELATION_REBUILD_MIN_AI_SCORE: f64 = 6.0;
 
 pub(crate) async fn rebuild_relations_batch_route(
     req: &mut Request,
@@ -20,7 +23,12 @@ pub(crate) async fn rebuild_relations_batch_route(
         .get("batchSize")
         .and_then(Value::as_i64)
         .unwrap_or(RELATION_REBUILD_BATCH_SIZE)
-        .clamp(1, 8);
+        .clamp(1, 16);
+    let replace_existing = body
+        .get("mode")
+        .and_then(Value::as_str)
+        .map(|mode| mode == "replace")
+        .unwrap_or(false);
     let accumulated_created = body
         .get("accumulatedCreated")
         .and_then(Value::as_u64)
@@ -33,7 +41,8 @@ pub(crate) async fn rebuild_relations_batch_route(
         .get("accumulatedSkipped")
         .and_then(Value::as_u64)
         .unwrap_or(0) as usize;
-    let progress = rebuild_relations_batch(env, viewer, cursor, batch_size).await?;
+    let progress =
+        rebuild_relations_batch(env, viewer, cursor, batch_size, replace_existing).await?;
     if progress.done {
         record_audit(
             env,
@@ -46,7 +55,8 @@ pub(crate) async fn rebuild_relations_batch_route(
                 "created": accumulated_created + progress.created,
                 "updated": accumulated_updated + progress.updated,
                 "skipped": accumulated_skipped + progress.skipped,
-                "source": progress.source
+                "source": progress.source,
+                "mode": if replace_existing { "replace" } else { "supplement" }
             }),
         )
         .await;
@@ -74,6 +84,7 @@ pub(crate) async fn rebuild_relations_batch(
     viewer: &Viewer,
     cursor: i64,
     batch_size: i64,
+    replace_existing: bool,
 ) -> std::result::Result<RelationRebuildProgress, AppError> {
     let total = count_relation_rebuild_memos(env, viewer).await?;
     let batch = list_relation_rebuild_batch(env, viewer, cursor, batch_size).await?;
@@ -106,12 +117,18 @@ pub(crate) async fn rebuild_relations_batch(
             &relation_candidates,
             RELATION_REBUILD_AI_CANDIDATE_LIMIT,
         );
-        if ranked.is_empty() {
-            replace_memo_relations(env, memo.id, &[]).await?;
+        let top_score = ranked
+            .first()
+            .map(|candidate| candidate.score)
+            .unwrap_or(0.0);
+        if ranked.is_empty() || top_score < RELATION_REBUILD_MIN_LOCAL_SCORE {
+            if replace_existing {
+                replace_memo_relations(env, memo.id, &[]).await?;
+            }
             skipped += 1;
             continue;
         }
-        let suggestions = if use_ai {
+        let suggestions = if use_ai && top_score >= RELATION_REBUILD_MIN_AI_SCORE {
             match request_ai_relation_suggestions(&settings, memo, &ranked, &candidate_content)
                 .await
             {
@@ -130,12 +147,13 @@ pub(crate) async fn rebuild_relations_batch(
         } else {
             local_relation_suggestions(&ranked)
         };
-        let related_ids = suggestion_related_ids(&suggestions, &candidate_ids, &memo.uid);
-        replace_memo_relations(env, memo.id, &related_ids).await?;
-        if related_ids.is_empty() {
+        let mut related_ids = suggestion_related_ids(&suggestions, &candidate_ids, &memo.uid);
+        let changed =
+            apply_memo_relations(env, memo.id, &mut related_ids, replace_existing).await?;
+        if changed == 0 {
             skipped += 1;
         } else {
-            created += related_ids.len();
+            created += changed;
             updated += 1;
         }
     }
@@ -255,4 +273,57 @@ async fn replace_memo_relations(
     }
     database.batch(statements).await?;
     Ok(())
+}
+
+async fn apply_memo_relations(
+    env: &Env,
+    memo_id: i64,
+    related_ids: &mut Vec<i64>,
+    replace_existing: bool,
+) -> std::result::Result<usize, AppError> {
+    if replace_existing {
+        related_ids.truncate(RELATION_REBUILD_MAX_RELATIONS_PER_MEMO);
+        replace_memo_relations(env, memo_id, related_ids).await?;
+        return Ok(related_ids.len());
+    }
+
+    let existing = existing_relation_ids(env, memo_id).await?;
+    if existing.len() >= RELATION_REBUILD_MAX_RELATIONS_PER_MEMO {
+        return Ok(0);
+    }
+    let remaining = RELATION_REBUILD_MAX_RELATIONS_PER_MEMO - existing.len();
+    related_ids.retain(|id| !existing.contains(id));
+    related_ids.truncate(remaining);
+    if related_ids.is_empty() {
+        return Ok(0);
+    }
+    let database = db(env)?;
+    let mut statements = Vec::with_capacity(related_ids.len());
+    for related_id in related_ids.iter() {
+        statements.push(
+            database
+                .prepare("INSERT OR IGNORE INTO memo_relation (memo_id, related_memo_id, type) VALUES (?, ?, 'REFERENCE')")
+                .bind(&[js_num(memo_id), js_num(*related_id)])?,
+        );
+    }
+    database.batch(statements).await?;
+    Ok(related_ids.len())
+}
+
+async fn existing_relation_ids(
+    env: &Env,
+    memo_id: i64,
+) -> std::result::Result<BTreeSet<i64>, AppError> {
+    let rows = db(env)?
+        .prepare(
+            "SELECT related_memo_id FROM memo_relation WHERE memo_id = ? AND type = 'REFERENCE'",
+        )
+        .bind(&[js_num(memo_id)])?
+        .all()
+        .await?;
+    let values: Vec<Value> = rows.results()?;
+    Ok(values
+        .into_iter()
+        .filter_map(|row| row.get("related_memo_id").and_then(Value::as_i64))
+        .collect())
 }
