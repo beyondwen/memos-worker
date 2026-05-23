@@ -49,7 +49,7 @@ export function SystemHealthSection({
             />
           </div>
           <div class="migration-progress-text">
-            <strong>{relationRebuildProgress.done ? "全库关联完成" : "正在重建知识关联"}</strong>
+            <strong>{relationRebuildTitle(relationRebuildProgress)}</strong>
             <span>
               已处理 {relationRebuildProgress.processed} / {relationRebuildProgress.total} 篇，写入 {relationRebuildProgress.created} 条关联
             </span>
@@ -92,4 +92,10 @@ export function SystemHealthSection({
 function relationRebuildPercent(progress: RelationRebuildProgress) {
   if (!progress.total) return progress.done ? 100 : 0;
   return Math.min(100, Math.round((progress.processed / progress.total) * 100));
+}
+
+function relationRebuildTitle(progress: RelationRebuildProgress) {
+  if (progress.done) return "全库关联完成";
+  if (progress.status === "INDEXING") return "正在准备关联索引";
+  return "正在重建知识关联";
 }

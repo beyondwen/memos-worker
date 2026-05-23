@@ -96,22 +96,27 @@ struct DbRelationRebuildTask {
 
 impl DbRelationRebuildTask {
     fn to_progress(&self) -> RelationRebuildProgress {
+        let processed = if self.status == "INDEXING" {
+            self.cursor.min(self.total)
+        } else {
+            self.processed
+        };
         RelationRebuildProgress {
             task_id: self.id.clone(),
             status: self.status.clone(),
             mode: self.mode.clone(),
             total: self.total,
-            processed: self.processed,
+            processed,
             batch_processed: 0,
             created: self.created.max(0) as usize,
             updated: self.updated.max(0) as usize,
             skipped: self.skipped.max(0) as usize,
-            next_cursor: if self.status == "RUNNING" {
+            next_cursor: if self.status == "RUNNING" || self.status == "INDEXING" {
                 Some(self.cursor)
             } else {
                 None
             },
-            done: self.status != "RUNNING",
+            done: !matches!(self.status.as_str(), "INDEXING" | "RUNNING"),
             source: self.source.clone(),
             warnings: parse_relation_rebuild_warnings(&self.warnings),
         }
@@ -123,7 +128,7 @@ pub(crate) async fn process_pending_relation_rebuild_tasks(
 ) -> std::result::Result<(), AppError> {
     ensure_relation_rebuild_tables(env).await?;
     let rows = db(env)?
-        .prepare("SELECT * FROM relation_rebuild_task WHERE status = 'RUNNING' ORDER BY updated_ts ASC, created_ts ASC LIMIT 2")
+        .prepare("SELECT * FROM relation_rebuild_task WHERE status IN ('INDEXING', 'RUNNING') ORDER BY updated_ts ASC, created_ts ASC LIMIT 2")
         .all()
         .await?;
     let tasks: Vec<DbRelationRebuildTask> = rows.results()?;
@@ -162,7 +167,7 @@ async fn start_relation_rebuild_task(
     let now = unix_now();
     let database = db(env)?;
     database
-        .prepare("UPDATE relation_rebuild_task SET status = 'CANCELED', updated_ts = ? WHERE user_id = ? AND status = 'RUNNING'")
+        .prepare("UPDATE relation_rebuild_task SET status = 'CANCELED', updated_ts = ? WHERE user_id = ? AND status IN ('INDEXING', 'RUNNING')")
         .bind(&[js_num(now), js_num(viewer.id)])?
         .run()
         .await?;
@@ -177,7 +182,7 @@ async fn start_relation_rebuild_task(
         .run()
         .await?;
     database
-        .prepare("INSERT INTO relation_rebuild_task (id, user_id, created_ts, updated_ts, status, mode, cursor, total, processed, created, updated, skipped, source, warnings) VALUES (?, ?, ?, ?, 'RUNNING', ?, 0, 0, 0, 0, 0, 0, 'local', '[]')")
+        .prepare("INSERT INTO relation_rebuild_task (id, user_id, created_ts, updated_ts, status, mode, cursor, total, processed, created, updated, skipped, source, warnings) VALUES (?, ?, ?, ?, 'INDEXING', ?, 0, 0, 0, 0, 0, 0, 'local', '[]')")
         .bind(&[
             task_id.clone().into(),
             js_num(viewer.id),
@@ -193,7 +198,6 @@ async fn start_relation_rebuild_task(
         .run()
         .await?;
     let total = count_relation_rebuild_task_candidates(env, &task_id).await?;
-    index_relation_rebuild_candidates(env, &task_id).await?;
     database
         .prepare("UPDATE relation_rebuild_task SET total = ?, updated_ts = ? WHERE id = ?")
         .bind(&[js_num(total), js_num(unix_now()), task_id.clone().into()])?
@@ -211,6 +215,9 @@ async fn process_relation_rebuild_task(
 ) -> std::result::Result<DbRelationRebuildTask, AppError> {
     ensure_relation_rebuild_tables(env).await?;
     let task = get_relation_rebuild_task(env, task_id, owner_id).await?;
+    if task.status == "INDEXING" {
+        return process_relation_rebuild_index_batch(env, &task).await;
+    }
     if task.status != "RUNNING" {
         return Ok(task);
     }
@@ -435,55 +442,61 @@ async fn list_relation_rebuild_task_candidates_page(
     rows.results().map_err(AppError::from)
 }
 
-async fn index_relation_rebuild_candidates(
+async fn process_relation_rebuild_index_batch(
     env: &Env,
-    task_id: &str,
-) -> std::result::Result<(), AppError> {
-    let database = db(env)?;
-    database
-        .prepare("DELETE FROM relation_rebuild_candidate_token WHERE task_id = ?")
-        .bind(&[task_id.into()])?
-        .run()
-        .await?;
+    task: &DbRelationRebuildTask,
+) -> std::result::Result<DbRelationRebuildTask, AppError> {
+    let candidates = list_relation_rebuild_task_candidates_page(
+        env,
+        &task.id,
+        task.cursor,
+        RELATION_REBUILD_TOKEN_INDEX_PAGE_SIZE,
+    )
+    .await?;
+    if candidates.is_empty() {
+        db(env)?
+            .prepare("UPDATE relation_rebuild_task SET status = 'RUNNING', cursor = 0, updated_ts = ? WHERE id = ?")
+            .bind(&[js_num(unix_now()), task.id.clone().into()])?
+            .run()
+            .await?;
+        return get_relation_rebuild_task(env, &task.id, None).await;
+    }
 
+    let next_cursor = candidates
+        .last()
+        .map(|candidate| candidate.id)
+        .unwrap_or(task.cursor);
+    let database = db(env)?;
     let mut statements = Vec::new();
-    let mut cursor = 0;
-    loop {
-        let candidates = list_relation_rebuild_task_candidates_page(
-            env,
-            task_id,
-            cursor,
-            RELATION_REBUILD_TOKEN_INDEX_PAGE_SIZE,
-        )
-        .await?;
-        if candidates.is_empty() {
-            break;
-        }
-        cursor = candidates
-            .last()
-            .map(|candidate| candidate.id)
-            .unwrap_or(cursor);
-        for candidate in candidates {
-            let relation_candidate = relation_candidate_from_memo(&candidate);
-            for token in relation_candidate_search_terms(
-                &relation_candidate,
-                RELATION_REBUILD_TOKEN_LIMIT_PER_MEMO,
-            ) {
-                statements.push(
-                    database
-                        .prepare("INSERT OR IGNORE INTO relation_rebuild_candidate_token (task_id, token, memo_id) VALUES (?, ?, ?)")
-                        .bind(&[task_id.into(), token.into(), js_num(candidate.id)])?,
-                );
-                if statements.len() >= RELATION_REBUILD_TOKEN_INSERT_BATCH_SIZE {
-                    database.batch(std::mem::take(&mut statements)).await?;
-                }
+    for candidate in candidates {
+        let relation_candidate = relation_candidate_from_memo(&candidate);
+        for token in relation_candidate_search_terms(
+            &relation_candidate,
+            RELATION_REBUILD_TOKEN_LIMIT_PER_MEMO,
+        ) {
+            statements.push(
+                database
+                    .prepare("INSERT OR IGNORE INTO relation_rebuild_candidate_token (task_id, token, memo_id) VALUES (?, ?, ?)")
+                    .bind(&[task.id.clone().into(), token.into(), js_num(candidate.id)])?,
+            );
+            if statements.len() >= RELATION_REBUILD_TOKEN_INSERT_BATCH_SIZE {
+                database.batch(std::mem::take(&mut statements)).await?;
             }
         }
     }
     if !statements.is_empty() {
         database.batch(statements).await?;
     }
-    Ok(())
+    database
+        .prepare("UPDATE relation_rebuild_task SET cursor = ?, updated_ts = ? WHERE id = ? AND status = 'INDEXING'")
+        .bind(&[
+            js_num(next_cursor),
+            js_num(unix_now()),
+            task.id.clone().into(),
+        ])?
+        .run()
+        .await?;
+    get_relation_rebuild_task(env, &task.id, None).await
 }
 
 async fn list_relation_rebuild_recall_candidates(
