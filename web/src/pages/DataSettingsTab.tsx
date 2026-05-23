@@ -5,6 +5,7 @@ import type {
   MigrationProgress,
   MigrationResult,
   OriginalBackupResult,
+  RelationRebuildProgress,
   SystemHealth,
   TagItem,
 } from "./settingsModel";
@@ -41,6 +42,8 @@ interface DataSettingsTabProps {
   systemHealth: SystemHealth | null;
   healthLoading: boolean;
   rebuildingIndex: boolean;
+  rebuildingRelations: boolean;
+  relationRebuildProgress: RelationRebuildProgress | null;
   migrationProgressVisible: boolean;
   migrationKnownTotal: number;
   migrationProgressPercent: number | null;
@@ -53,6 +56,7 @@ interface DataSettingsTabProps {
   onRestoreBackup: () => void;
   onRefreshHealth: () => void;
   onRebuildMemoIndex: () => void;
+  onRebuildRelations: () => void;
   onAiBaseUrlChange: (value: string) => void;
   onAiModelChange: (value: string) => void;
   onAiApiKeyChange: (value: string) => void;
@@ -97,6 +101,8 @@ export function DataSettingsTab({
   systemHealth,
   healthLoading,
   rebuildingIndex,
+  rebuildingRelations,
+  relationRebuildProgress,
   migrationProgressVisible,
   migrationKnownTotal,
   migrationProgressPercent,
@@ -109,6 +115,7 @@ export function DataSettingsTab({
   onRestoreBackup,
   onRefreshHealth,
   onRebuildMemoIndex,
+  onRebuildRelations,
   onAiBaseUrlChange,
   onAiModelChange,
   onAiApiKeyChange,
@@ -131,8 +138,11 @@ export function DataSettingsTab({
         health={systemHealth}
         healthLoading={healthLoading}
         rebuildingIndex={rebuildingIndex}
+        rebuildingRelations={rebuildingRelations}
+        relationRebuildProgress={relationRebuildProgress}
         onRefreshHealth={onRefreshHealth}
         onRebuildMemoIndex={onRebuildMemoIndex}
+        onRebuildRelations={onRebuildRelations}
       />
 
       <DataMaintenanceSection

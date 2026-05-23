@@ -1,0 +1,258 @@
+use super::*;
+
+const RELATION_REBUILD_BATCH_SIZE: i64 = 3;
+const RELATION_REBUILD_CANDIDATE_LIMIT: i64 = 5000;
+const RELATION_REBUILD_AI_CANDIDATE_LIMIT: usize = 45;
+
+pub(crate) async fn rebuild_relations_batch_route(
+    req: &mut Request,
+    env: &Env,
+    viewer: &Viewer,
+) -> std::result::Result<Response, AppError> {
+    require_admin(viewer)?;
+    let body: Value = req.json().await.unwrap_or_else(|_| json!({}));
+    let cursor = body
+        .get("cursor")
+        .and_then(Value::as_i64)
+        .unwrap_or(0)
+        .max(0);
+    let batch_size = body
+        .get("batchSize")
+        .and_then(Value::as_i64)
+        .unwrap_or(RELATION_REBUILD_BATCH_SIZE)
+        .clamp(1, 8);
+    let accumulated_created = body
+        .get("accumulatedCreated")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let accumulated_updated = body
+        .get("accumulatedUpdated")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let accumulated_skipped = body
+        .get("accumulatedSkipped")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let progress = rebuild_relations_batch(env, viewer, cursor, batch_size).await?;
+    if progress.done {
+        record_audit(
+            env,
+            Some(viewer),
+            "relations.rebuild",
+            "memo_relation",
+            json!({
+                "processed": progress.processed,
+                "total": progress.total,
+                "created": accumulated_created + progress.created,
+                "updated": accumulated_updated + progress.updated,
+                "skipped": accumulated_skipped + progress.skipped,
+                "source": progress.source
+            }),
+        )
+        .await;
+    }
+    json_response(json!({ "progress": progress }), 200).map_err(AppError::from)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RelationRebuildProgress {
+    pub(crate) total: i64,
+    pub(crate) processed: i64,
+    pub(crate) batch_processed: i64,
+    pub(crate) created: usize,
+    pub(crate) updated: usize,
+    pub(crate) skipped: usize,
+    pub(crate) next_cursor: Option<i64>,
+    pub(crate) done: bool,
+    pub(crate) source: String,
+    pub(crate) warnings: Vec<String>,
+}
+
+pub(crate) async fn rebuild_relations_batch(
+    env: &Env,
+    viewer: &Viewer,
+    cursor: i64,
+    batch_size: i64,
+) -> std::result::Result<RelationRebuildProgress, AppError> {
+    let total = count_relation_rebuild_memos(env, viewer).await?;
+    let batch = list_relation_rebuild_batch(env, viewer, cursor, batch_size).await?;
+    let batch_processed = batch.len() as i64;
+    let candidates = list_relation_rebuild_candidates(env, viewer).await?;
+    let candidate_content: HashMap<String, String> = candidates
+        .iter()
+        .map(|candidate| (candidate.uid.clone(), candidate.content.clone()))
+        .collect();
+    let candidate_ids: HashMap<String, i64> = candidates
+        .iter()
+        .map(|candidate| (candidate.uid.clone(), candidate.id))
+        .collect();
+    let relation_candidates: Vec<RelationCandidate> = candidates
+        .iter()
+        .map(relation_candidate_from_memo)
+        .collect();
+    let settings = resolve_ai_settings(env).await?;
+    let use_ai = !settings.api_key.trim().is_empty();
+    let mut created = 0;
+    let mut updated = 0;
+    let mut skipped = 0;
+    let mut ai_used = 0;
+    let mut warnings = Vec::new();
+
+    for memo in &batch {
+        let current = relation_candidate_from_memo(memo);
+        let ranked = rank_relation_candidates(
+            &current,
+            &relation_candidates,
+            RELATION_REBUILD_AI_CANDIDATE_LIMIT,
+        );
+        if ranked.is_empty() {
+            replace_memo_relations(env, memo.id, &[]).await?;
+            skipped += 1;
+            continue;
+        }
+        let suggestions = if use_ai {
+            match request_ai_relation_suggestions(&settings, memo, &ranked, &candidate_content)
+                .await
+            {
+                Ok(items) if !items.is_empty() => {
+                    ai_used += 1;
+                    items
+                }
+                Ok(_) => local_relation_suggestions(&ranked),
+                Err(error) => {
+                    if warnings.len() < 3 {
+                        warnings.push(error.message);
+                    }
+                    local_relation_suggestions(&ranked)
+                }
+            }
+        } else {
+            local_relation_suggestions(&ranked)
+        };
+        let related_ids = suggestion_related_ids(&suggestions, &candidate_ids, &memo.uid);
+        replace_memo_relations(env, memo.id, &related_ids).await?;
+        if related_ids.is_empty() {
+            skipped += 1;
+        } else {
+            created += related_ids.len();
+            updated += 1;
+        }
+    }
+
+    let next_cursor = batch.last().map(|memo| memo.id);
+    let processed =
+        count_relation_rebuild_processed(env, viewer, next_cursor.unwrap_or(cursor)).await?;
+    let done = batch_processed < batch_size || processed >= total;
+    Ok(RelationRebuildProgress {
+        total,
+        processed,
+        batch_processed,
+        created,
+        updated,
+        skipped,
+        next_cursor: if done { None } else { next_cursor },
+        done,
+        source: if use_ai && ai_used > 0 {
+            "ai".to_string()
+        } else {
+            "local".to_string()
+        },
+        warnings,
+    })
+}
+
+async fn count_relation_rebuild_memos(
+    env: &Env,
+    viewer: &Viewer,
+) -> std::result::Result<i64, AppError> {
+    db(env)?
+        .prepare(
+            "SELECT COUNT(*) AS count FROM memo WHERE creator_id = ? AND row_status = 'NORMAL'",
+        )
+        .bind(&[js_num(viewer.id)])?
+        .first(Some("count"))
+        .await?
+        .ok_or_else(|| AppError::new(500, "Failed to count memos"))
+}
+
+async fn count_relation_rebuild_processed(
+    env: &Env,
+    viewer: &Viewer,
+    cursor: i64,
+) -> std::result::Result<i64, AppError> {
+    db(env)?
+        .prepare("SELECT COUNT(*) AS count FROM memo WHERE creator_id = ? AND row_status = 'NORMAL' AND id <= ?")
+        .bind(&[js_num(viewer.id), js_num(cursor)])?
+        .first(Some("count"))
+        .await?
+        .ok_or_else(|| AppError::new(500, "Failed to count processed memos"))
+}
+
+async fn list_relation_rebuild_batch(
+    env: &Env,
+    viewer: &Viewer,
+    cursor: i64,
+    batch_size: i64,
+) -> std::result::Result<Vec<DbMemo>, AppError> {
+    let rows = db(env)?.prepare("SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE memo.creator_id = ? AND memo.row_status = 'NORMAL' AND memo.id > ? ORDER BY memo.id ASC LIMIT ?")
+        .bind(&[js_num(viewer.id), js_num(cursor), js_num(batch_size)])?
+        .all()
+        .await?;
+    rows.results().map_err(AppError::from)
+}
+
+async fn list_relation_rebuild_candidates(
+    env: &Env,
+    viewer: &Viewer,
+) -> std::result::Result<Vec<DbMemo>, AppError> {
+    let rows = db(env)?.prepare("SELECT memo.*, \"user\".username AS creator_username, \"user\".nickname AS creator_nickname FROM memo JOIN \"user\" ON \"user\".id = memo.creator_id WHERE memo.creator_id = ? AND memo.row_status = 'NORMAL' ORDER BY memo.updated_ts DESC, memo.id DESC LIMIT ?")
+        .bind(&[js_num(viewer.id), js_num(RELATION_REBUILD_CANDIDATE_LIMIT)])?
+        .all()
+        .await?;
+    rows.results().map_err(AppError::from)
+}
+
+fn suggestion_related_ids(
+    suggestions: &[Value],
+    candidate_ids: &HashMap<String, i64>,
+    current_uid: &str,
+) -> Vec<i64> {
+    let mut seen = BTreeSet::new();
+    let mut ids = Vec::new();
+    for suggestion in suggestions {
+        let uid = suggestion
+            .get("memo")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim_start_matches("memos/")
+            .trim();
+        if uid.is_empty() || uid == current_uid || !seen.insert(uid.to_string()) {
+            continue;
+        }
+        if let Some(id) = candidate_ids.get(uid) {
+            ids.push(*id);
+        }
+    }
+    ids
+}
+
+async fn replace_memo_relations(
+    env: &Env,
+    memo_id: i64,
+    related_ids: &[i64],
+) -> std::result::Result<(), AppError> {
+    let database = db(env)?;
+    let mut statements = vec![database
+        .prepare("DELETE FROM memo_relation WHERE memo_id = ? AND type = 'REFERENCE'")
+        .bind(&[js_num(memo_id)])?];
+    for related_id in related_ids {
+        statements.push(
+            database
+                .prepare("INSERT OR IGNORE INTO memo_relation (memo_id, related_memo_id, type) VALUES (?, ?, 'REFERENCE')")
+                .bind(&[js_num(memo_id), js_num(*related_id)])?,
+        );
+    }
+    database.batch(statements).await?;
+    Ok(())
+}

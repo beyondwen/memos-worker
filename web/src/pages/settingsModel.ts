@@ -104,6 +104,19 @@ export interface SystemHealth {
   };
 }
 
+export interface RelationRebuildProgress {
+  total: number;
+  processed: number;
+  batchProcessed: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  nextCursor?: number | null;
+  done: boolean;
+  source: "ai" | "local";
+  warnings: string[];
+}
+
 export interface AuditLog {
   id: number;
   createdTs: number;
@@ -158,6 +171,11 @@ export function auditLogDetail(log: AuditLog): string {
   if (log.action?.startsWith("backup.")) {
     const size = Number(detail.size ?? 0);
     return size ? `${log.target} · ${Math.round(size / 1024)} KB` : log.target;
+  }
+  if (log.action === "relations.rebuild") {
+    const created = Number(detail.created ?? 0);
+    const total = Number(detail.total ?? 0);
+    return `处理 ${total} 篇，写入 ${created} 条关联`;
   }
   return log.target;
 }

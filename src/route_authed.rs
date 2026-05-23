@@ -111,6 +111,9 @@ pub(crate) async fn authed_route(
     if path == "/api/v1/memo-index/rebuild" && method == Method::Post {
         return rebuild_memo_index_route(env, &viewer).await;
     }
+    if path == "/api/v1/relations/rebuild" && method == Method::Post {
+        return rebuild_relations_batch_route(req, env, &viewer).await;
+    }
     if path == "/api/v1/ai/settings" && method == Method::Get {
         return get_ai_settings(env, &viewer).await;
     }

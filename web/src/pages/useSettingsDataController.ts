@@ -9,6 +9,7 @@ import type {
   MigrationProgress,
   MigrationResult,
   OriginalBackupResult,
+  RelationRebuildProgress,
   SystemHealth,
   TagItem,
 } from "./settingsModel";
@@ -66,6 +67,8 @@ export function useSettingsDataController({
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [rebuildingIndex, setRebuildingIndex] = useState(false);
+  const [rebuildingRelations, setRebuildingRelations] = useState(false);
+  const [relationRebuildProgress, setRelationRebuildProgress] = useState<RelationRebuildProgress | null>(null);
 
   const fetchBackups = useCallback(async () => {
     if (!currentUser || currentUser.role !== "ADMIN") return;
@@ -412,6 +415,55 @@ export function useSettingsDataController({
     }
   };
 
+  const handleRebuildRelations = async () => {
+    const ok = await confirm({
+      title: "全库 AI 关联？",
+      message: "会分批扫描当前账号全部正常备忘录，为每篇重建引用关系。已存在的出站引用会按本次结果刷新。",
+      confirmText: "开始关联",
+    });
+    if (!ok) return;
+    setRebuildingRelations(true);
+    setRelationRebuildProgress(null);
+    try {
+      let cursor: number | null = 0;
+      let totalCreated = 0;
+      let totalUpdated = 0;
+      let totalSkipped = 0;
+      let warnings: string[] = [];
+      while (cursor !== null) {
+        const payload = {
+          cursor,
+          accumulatedCreated: totalCreated,
+          accumulatedUpdated: totalUpdated,
+          accumulatedSkipped: totalSkipped,
+        };
+        const data: { progress: RelationRebuildProgress } = await api("/api/v1/relations/rebuild", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        totalCreated += data.progress.created;
+        totalUpdated += data.progress.updated;
+        totalSkipped += data.progress.skipped;
+        warnings = [...warnings, ...data.progress.warnings].slice(0, 3);
+        const merged = {
+          ...data.progress,
+          created: totalCreated,
+          updated: totalUpdated,
+          skipped: totalSkipped,
+          warnings,
+        };
+        setRelationRebuildProgress(merged);
+        cursor = data.progress.done ? null : data.progress.nextCursor ?? null;
+      }
+      await refreshAuditLogs();
+      notify(`全库关联完成，写入 ${totalCreated} 条关联`, "success");
+    } catch (err) {
+      notify(`全库关联失败：${(err as Error).message}`, "error");
+    } finally {
+      setRebuildingRelations(false);
+    }
+  };
+
   const handleRenameTag = async (e: Event) => {
     e.preventDefault();
     setTagSaving(true);
@@ -469,6 +521,8 @@ export function useSettingsDataController({
     systemHealth,
     healthLoading,
     rebuildingIndex,
+    rebuildingRelations,
+    relationRebuildProgress,
     migrationProgressVisible: migrationProgressView.visible,
     migrationKnownTotal: migrationProgressView.knownTotal,
     migrationProgressPercent: migrationProgressView.percent,
@@ -481,6 +535,7 @@ export function useSettingsDataController({
     onRestoreBackup: handleRestoreBackup,
     onRefreshHealth: fetchSystemHealth,
     onRebuildMemoIndex: handleRebuildMemoIndex,
+    onRebuildRelations: handleRebuildRelations,
     onAiBaseUrlChange: setAiBaseUrl,
     onAiModelChange: setAiModel,
     onAiApiKeyChange: setAiApiKey,

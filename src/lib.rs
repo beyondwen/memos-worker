@@ -84,6 +84,8 @@ mod relation_suggestions;
 pub(crate) use relation_suggestions::*;
 mod relations;
 pub(crate) use relations::*;
+mod relation_rebuild;
+pub(crate) use relation_rebuild::*;
 mod users;
 pub(crate) use users::*;
 mod user_settings;

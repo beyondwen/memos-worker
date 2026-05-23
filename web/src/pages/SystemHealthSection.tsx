@@ -1,19 +1,25 @@
-import type { SystemHealth } from "./settingsModel";
+import type { RelationRebuildProgress, SystemHealth } from "./settingsModel";
 
 interface SystemHealthSectionProps {
   health: SystemHealth | null;
   healthLoading: boolean;
   rebuildingIndex: boolean;
+  rebuildingRelations: boolean;
+  relationRebuildProgress: RelationRebuildProgress | null;
   onRefreshHealth: () => void;
   onRebuildMemoIndex: () => void;
+  onRebuildRelations: () => void;
 }
 
 export function SystemHealthSection({
   health,
   healthLoading,
   rebuildingIndex,
+  rebuildingRelations,
+  relationRebuildProgress,
   onRefreshHealth,
   onRebuildMemoIndex,
+  onRebuildRelations,
 }: SystemHealthSectionProps) {
   const index = health?.memoIndex;
   const backup = health?.backup;
@@ -30,7 +36,29 @@ export function SystemHealthSection({
         <button class="btn btn-ghost btn-sm" onClick={onRebuildMemoIndex} disabled={rebuildingIndex}>
           {rebuildingIndex ? "重建中..." : "重建索引"}
         </button>
+        <button class="btn btn-ghost btn-sm" onClick={onRebuildRelations} disabled={rebuildingRelations}>
+          {rebuildingRelations ? "关联中..." : "全库 AI 关联"}
+        </button>
       </div>
+      {relationRebuildProgress && (
+        <div class="migration-progress relation-rebuild-progress">
+          <div class="migration-progress-track" aria-hidden="true">
+            <div
+              class="migration-progress-fill determinate"
+              style={{ width: `${relationRebuildPercent(relationRebuildProgress)}%` }}
+            />
+          </div>
+          <div class="migration-progress-text">
+            <strong>{relationRebuildProgress.done ? "全库关联完成" : "正在重建知识关联"}</strong>
+            <span>
+              已处理 {relationRebuildProgress.processed} / {relationRebuildProgress.total} 篇，写入 {relationRebuildProgress.created} 条关联
+            </span>
+          </div>
+          {relationRebuildProgress.warnings.length > 0 && (
+            <div class="muted-line">部分批次 AI 不可用，已使用本地候选补齐。</div>
+          )}
+        </div>
+      )}
       {health && (
         <div class="settings-record-list">
           <div class="settings-record-row">
@@ -59,4 +87,9 @@ export function SystemHealthSection({
       )}
     </div>
   );
+}
+
+function relationRebuildPercent(progress: RelationRebuildProgress) {
+  if (!progress.total) return progress.done ? 100 : 0;
+  return Math.min(100, Math.round((progress.processed / progress.total) * 100));
 }

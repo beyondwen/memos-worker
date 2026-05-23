@@ -200,10 +200,10 @@ fn relation_uid_from_ref(value: &str) -> String {
         .to_string()
 }
 
-fn local_relation_suggestions(ranked: &[RankedRelationCandidate]) -> Vec<Value> {
+pub(crate) fn local_relation_suggestions(ranked: &[RankedRelationCandidate]) -> Vec<Value> {
     ranked
         .iter()
-        .take(5)
+        .take(8)
         .map(|candidate| {
             json!({
                 "memo": format!("memos/{}", candidate.uid),
