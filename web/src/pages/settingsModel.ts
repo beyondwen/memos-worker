@@ -117,6 +117,7 @@ export interface RelationRebuildProgress {
   nextCursor?: number | null;
   done: boolean;
   source: "ai" | "local";
+  error?: string | null;
   warnings: string[];
 }
 

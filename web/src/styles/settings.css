@@ -437,6 +437,7 @@
 .muted-line {
   color: var(--text-muted); font-size: 0.88rem; padding: 8px 0;
 }
+.muted-line.error { color: var(--danger); }
 .overview-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px; margin-bottom: 14px;

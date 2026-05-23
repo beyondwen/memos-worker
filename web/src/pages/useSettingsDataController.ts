@@ -460,6 +460,14 @@ export function useSettingsDataController({
         setRelationRebuildProgress(progress);
       }
       await refreshAuditLogs();
+      if (progress.status === "FAILED") {
+        notify(`全库关联失败：${progress.error || "任务执行失败"}`, "error");
+        return;
+      }
+      if (progress.status === "CANCELED") {
+        notify("全库关联已取消", "info");
+        return;
+      }
       notify(`全库关联完成，写入 ${progress.created} 条关联`, "success");
     } catch (err) {
       notify(`全库关联失败：${(err as Error).message}`, "error");

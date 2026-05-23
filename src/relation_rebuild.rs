@@ -54,9 +54,14 @@ pub(crate) async fn rebuild_relations_batch_route(
         .and_then(Value::as_i64)
         .unwrap_or(RELATION_REBUILD_BATCH_SIZE)
         .clamp(1, 32);
-    let task =
-        process_relation_rebuild_task(env, task_id, Some(viewer.id), batch_size, Some(viewer))
-            .await?;
+    let task = process_relation_rebuild_task_safely(
+        env,
+        task_id,
+        Some(viewer.id),
+        batch_size,
+        Some(viewer),
+    )
+    .await?;
     let progress = task.to_progress();
     json_response(json!({ "progress": progress }), 200).map_err(AppError::from)
 }
@@ -76,6 +81,7 @@ pub(crate) struct RelationRebuildProgress {
     pub(crate) next_cursor: Option<i64>,
     pub(crate) done: bool,
     pub(crate) source: String,
+    pub(crate) error: Option<String>,
     pub(crate) warnings: Vec<String>,
 }
 
@@ -92,6 +98,7 @@ struct DbRelationRebuildTask {
     updated: i64,
     skipped: i64,
     source: String,
+    error: String,
     warnings: String,
 }
 
@@ -120,6 +127,11 @@ impl DbRelationRebuildTask {
                 "SNAPSHOTTING" | "INDEXING" | "RUNNING"
             ),
             source: self.source.clone(),
+            error: if self.error.trim().is_empty() {
+                None
+            } else {
+                Some(self.error.clone())
+            },
             warnings: parse_relation_rebuild_warnings(&self.warnings),
         }
     }
@@ -135,7 +147,7 @@ pub(crate) async fn process_pending_relation_rebuild_tasks(
         .await?;
     let tasks: Vec<DbRelationRebuildTask> = rows.results()?;
     for task in tasks {
-        let _ = process_relation_rebuild_task(
+        let _ = process_relation_rebuild_task_safely(
             env,
             &task.id,
             None,
@@ -184,7 +196,7 @@ async fn start_relation_rebuild_task(
         .run()
         .await?;
     database
-        .prepare("INSERT INTO relation_rebuild_task (id, user_id, created_ts, updated_ts, status, mode, cursor, total, processed, created, updated, skipped, source, warnings) VALUES (?, ?, ?, ?, 'SNAPSHOTTING', ?, 0, 0, 0, 0, 0, 0, 'local', '[]')")
+        .prepare("INSERT INTO relation_rebuild_task (id, user_id, created_ts, updated_ts, status, mode, cursor, total, processed, created, updated, skipped, source, failed_attempts, error, warnings) VALUES (?, ?, ?, ?, 'SNAPSHOTTING', ?, 0, 0, 0, 0, 0, 0, 'local', 0, '', '[]')")
         .bind(&[
             task_id.clone().into(),
             js_num(viewer.id),
@@ -318,7 +330,7 @@ async fn process_relation_rebuild_task(
         "local"
     };
     db(env)?
-        .prepare("UPDATE relation_rebuild_task SET updated_ts = ?, status = ?, cursor = ?, processed = ?, created = created + ?, updated = updated + ?, skipped = skipped + ?, source = ?, warnings = ? WHERE id = ?")
+        .prepare("UPDATE relation_rebuild_task SET updated_ts = ?, status = ?, cursor = ?, processed = ?, created = created + ?, updated = updated + ?, skipped = skipped + ?, source = ?, failed_attempts = 0, error = '', warnings = ? WHERE id = ?")
         .bind(&[
             js_num(unix_now()),
             status.into(),
@@ -336,15 +348,65 @@ async fn process_relation_rebuild_task(
     let updated_task = get_relation_rebuild_task(env, &task.id, owner_id).await?;
     if done {
         record_relation_rebuild_audit(env, actor, &updated_task).await;
-        cleanup_relation_rebuild_candidates(env, &task.id).await?;
+        let _ = cleanup_relation_rebuild_candidates(env, &task.id).await;
     }
     Ok(updated_task)
+}
+
+async fn process_relation_rebuild_task_safely(
+    env: &Env,
+    task_id: &str,
+    owner_id: Option<i64>,
+    batch_size: i64,
+    actor: Option<&Viewer>,
+) -> std::result::Result<DbRelationRebuildTask, AppError> {
+    match process_relation_rebuild_task(env, task_id, owner_id, batch_size, actor).await {
+        Ok(task) => Ok(task),
+        Err(error) => match get_relation_rebuild_task(env, task_id, owner_id).await {
+            Ok(task)
+                if matches!(
+                    task.status.as_str(),
+                    "SNAPSHOTTING" | "INDEXING" | "RUNNING"
+                ) =>
+            {
+                fail_relation_rebuild_task(env, &task, &error.message).await
+            }
+            _ => Err(error),
+        },
+    }
+}
+
+async fn fail_relation_rebuild_task(
+    env: &Env,
+    task: &DbRelationRebuildTask,
+    message: &str,
+) -> std::result::Result<DbRelationRebuildTask, AppError> {
+    let error = truncate(message, 480);
+    let mut warnings = parse_relation_rebuild_warnings(&task.warnings);
+    if warnings.last().map(String::as_str) != Some(error.as_str()) {
+        warnings.push(error.clone());
+        if warnings.len() > 5 {
+            warnings = warnings[warnings.len() - 5..].to_vec();
+        }
+    }
+    db(env)?
+        .prepare("UPDATE relation_rebuild_task SET status = 'FAILED', updated_ts = ?, failed_attempts = failed_attempts + 1, error = ?, warnings = ? WHERE id = ?")
+        .bind(&[
+            js_num(unix_now()),
+            error.into(),
+            json!(warnings).to_string().into(),
+            task.id.clone().into(),
+        ])?
+        .run()
+        .await?;
+    let _ = cleanup_relation_rebuild_candidates(env, &task.id).await;
+    get_relation_rebuild_task(env, &task.id, None).await
 }
 
 async fn ensure_relation_rebuild_tables(env: &Env) -> std::result::Result<(), AppError> {
     let database = db(env)?;
     database
-        .prepare("CREATE TABLE IF NOT EXISTS relation_rebuild_task (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_ts INTEGER NOT NULL, updated_ts INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'RUNNING', mode TEXT NOT NULL DEFAULT 'supplement', cursor INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0, processed INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL DEFAULT 0, skipped INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'local', warnings TEXT NOT NULL DEFAULT '[]')")
+        .prepare("CREATE TABLE IF NOT EXISTS relation_rebuild_task (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_ts INTEGER NOT NULL, updated_ts INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'RUNNING', mode TEXT NOT NULL DEFAULT 'supplement', cursor INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0, processed INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL DEFAULT 0, skipped INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'local', failed_attempts INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', warnings TEXT NOT NULL DEFAULT '[]')")
         .run()
         .await?;
     database
@@ -470,7 +532,7 @@ async fn process_relation_rebuild_snapshot_batch(
     .await?;
     if memos.is_empty() {
         db(env)?
-            .prepare("UPDATE relation_rebuild_task SET status = 'INDEXING', cursor = 0, processed = 0, updated_ts = ? WHERE id = ?")
+        .prepare("UPDATE relation_rebuild_task SET status = 'INDEXING', cursor = 0, processed = 0, failed_attempts = 0, error = '', updated_ts = ? WHERE id = ?")
             .bind(&[js_num(unix_now()), task.id.clone().into()])?
             .run()
             .await?;
@@ -501,7 +563,7 @@ async fn process_relation_rebuild_snapshot_batch(
     }
     database.batch(statements).await?;
     database
-        .prepare("UPDATE relation_rebuild_task SET cursor = ?, processed = processed + ?, updated_ts = ? WHERE id = ? AND status = 'SNAPSHOTTING'")
+        .prepare("UPDATE relation_rebuild_task SET cursor = ?, processed = processed + ?, failed_attempts = 0, error = '', updated_ts = ? WHERE id = ? AND status = 'SNAPSHOTTING'")
         .bind(&[
             js_num(next_cursor),
             js_num(inserted),
@@ -526,7 +588,7 @@ async fn process_relation_rebuild_index_batch(
     .await?;
     if candidates.is_empty() {
         db(env)?
-            .prepare("UPDATE relation_rebuild_task SET status = 'RUNNING', cursor = 0, processed = 0, updated_ts = ? WHERE id = ?")
+            .prepare("UPDATE relation_rebuild_task SET status = 'RUNNING', cursor = 0, processed = 0, failed_attempts = 0, error = '', updated_ts = ? WHERE id = ?")
             .bind(&[js_num(unix_now()), task.id.clone().into()])?
             .run()
             .await?;
@@ -560,7 +622,7 @@ async fn process_relation_rebuild_index_batch(
         database.batch(statements).await?;
     }
     database
-        .prepare("UPDATE relation_rebuild_task SET cursor = ?, processed = processed + ?, updated_ts = ? WHERE id = ? AND status = 'INDEXING'")
+        .prepare("UPDATE relation_rebuild_task SET cursor = ?, processed = processed + ?, failed_attempts = 0, error = '', updated_ts = ? WHERE id = ? AND status = 'INDEXING'")
         .bind(&[
             js_num(next_cursor),
             js_num(indexed),

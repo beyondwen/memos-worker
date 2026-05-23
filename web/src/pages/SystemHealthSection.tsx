@@ -54,6 +54,9 @@ export function SystemHealthSection({
               已处理 {relationRebuildProgress.processed} / {relationRebuildProgress.total} 篇，写入 {relationRebuildProgress.created} 条关联
             </span>
           </div>
+          {relationRebuildProgress.status === "FAILED" && relationRebuildProgress.error && (
+            <div class="muted-line error">失败原因：{relationRebuildProgress.error}</div>
+          )}
           {relationRebuildProgress.warnings.length > 0 && (
             <div class="muted-line">部分批次 AI 不可用，已使用本地候选补齐。</div>
           )}
@@ -95,6 +98,8 @@ function relationRebuildPercent(progress: RelationRebuildProgress) {
 }
 
 function relationRebuildTitle(progress: RelationRebuildProgress) {
+  if (progress.status === "FAILED") return "全库关联失败";
+  if (progress.status === "CANCELED") return "全库关联已取消";
   if (progress.done) return "全库关联完成";
   if (progress.status === "SNAPSHOTTING") return "正在准备关联快照";
   if (progress.status === "INDEXING") return "正在准备关联索引";

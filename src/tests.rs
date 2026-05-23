@@ -139,6 +139,15 @@ fn relation_rebuild_token_migration_creates_recall_index() {
 }
 
 #[test]
+fn relation_rebuild_failure_migration_adds_error_state() {
+    let migration = std::fs::read_to_string("migrations/0010_relation_rebuild_failures.sql")
+        .expect("relation rebuild failure migration");
+
+    assert!(migration.contains("ADD COLUMN failed_attempts"));
+    assert!(migration.contains("ADD COLUMN error"));
+}
+
+#[test]
 fn backup_encryption_keyring_parses_json_and_comma_formats() {
     let json_keys = parse_backup_encryption_keys(r#"{"old":"secret-old","new":"secret-new"}"#);
     assert!(json_keys.contains(&BackupEncryptionKey {
