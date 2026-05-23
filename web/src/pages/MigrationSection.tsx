@@ -85,7 +85,7 @@ export function MigrationSection({
           <span>包含归档内容</span>
         </label>
       </div>
-      <div class="settings-actions">
+      <div class="settings-actions migration-actions">
         <button
           class="btn btn-secondary"
           onClick={onPreviewMigration}
@@ -168,7 +168,7 @@ export function MigrationSection({
           {originalBackupResult.truncated && <span>已达到单次上限</span>}
         </div>
       )}
-      <div class="muted-line">
+      <div class="muted-line migration-note">
         拉取会跳过重复原版记录；备份到原版只创建当前系统中尚未推送过的本地备忘录，不会删除或覆盖原版数据。附件文件仍只保留元信息。
       </div>
     </div>

@@ -81,8 +81,8 @@ pub(crate) async fn suggest_memo_relations(
     viewer: &Viewer,
     uid: &str,
 ) -> std::result::Result<Response, AppError> {
-    pub(crate) const RECENT_CANDIDATE_LIMIT: i64 = 80;
-    pub(crate) const AI_CANDIDATE_LIMIT: usize = 30;
+    pub(crate) const CANDIDATE_SCAN_LIMIT: i64 = 2500;
+    pub(crate) const AI_CANDIDATE_LIMIT: usize = 45;
 
     let memo = get_memo_by_uid(env, uid)
         .await?
@@ -92,7 +92,7 @@ pub(crate) async fn suggest_memo_relations(
     }
 
     let rows = db(env)?.prepare("SELECT memo.uid, memo.content, memo.payload, memo.updated_ts FROM memo WHERE memo.row_status = 'NORMAL' AND memo.id != ? AND (memo.visibility != 'PRIVATE' OR memo.creator_id = ? OR ? = 'ADMIN') AND NOT EXISTS (SELECT 1 FROM memo_relation WHERE memo_relation.memo_id = ? AND memo_relation.related_memo_id = memo.id AND memo_relation.type = 'REFERENCE') ORDER BY memo.updated_ts DESC, memo.id DESC LIMIT ?")
-        .bind(&[js_num(memo.id), js_num(viewer.id), viewer.role.clone().into(), js_num(memo.id), js_num(RECENT_CANDIDATE_LIMIT)])?
+        .bind(&[js_num(memo.id), js_num(viewer.id), viewer.role.clone().into(), js_num(memo.id), js_num(CANDIDATE_SCAN_LIMIT)])?
         .all()
         .await?;
     let candidates: Vec<RelationCandidate> = rows.results()?;

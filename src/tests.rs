@@ -549,6 +549,34 @@ fn parse_ai_relation_suggestions_drops_unknown_memos() {
 }
 
 #[test]
+fn relation_ranking_uses_chinese_content_beyond_recent_items() {
+    let current = RelationCandidate {
+        uid: "m_current".to_string(),
+        content: "今天复盘英语阅读和长难句拆解，顺便记录学习计划".to_string(),
+        payload: "{}".to_string(),
+        updated_ts: 3000,
+    };
+    let mut candidates: Vec<RelationCandidate> = (0..120)
+        .map(|index| RelationCandidate {
+            uid: format!("m_recent_{}", index),
+            content: format!("普通生活记录 {}", index),
+            payload: "{}".to_string(),
+            updated_ts: 2900 - index,
+        })
+        .collect();
+    candidates.push(RelationCandidate {
+        uid: "m_old_related".to_string(),
+        content: "英语阅读训练：长难句拆解和学习计划调整".to_string(),
+        payload: "{}".to_string(),
+        updated_ts: 100,
+    });
+
+    let ranked = rank_relation_candidates(&current, &candidates, 45);
+
+    assert_eq!(ranked[0].uid, "m_old_related");
+}
+
+#[test]
 fn requested_relation_uids_normalizes_deduplicates_and_skips_self() {
     let body = json!({
         "relations": [

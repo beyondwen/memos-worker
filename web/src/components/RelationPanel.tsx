@@ -39,16 +39,16 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
     fetchRelations().catch(() => undefined);
   }, [fetchRelations]);
 
-  const saveRelations = async () => {
+  const saveRelations = async (nextInput = input, successMessage = "引用关系已保存") => {
     setSaving(true);
     try {
       const data = await api<{ relations: MemoRelation[] }>(`/api/v1/memos/${memoUid}/relations`, {
         method: "PATCH",
-        body: JSON.stringify({ relations: parseRelationInput(input) }),
+        body: JSON.stringify({ relations: parseRelationInput(nextInput) }),
       });
       setRelations(data.relations);
       setInput(relationInputFromRelations(data.relations));
-      notify("引用关系已保存", "success");
+      notify(successMessage, "success");
     } catch (err) {
       notify(`保存引用失败：${(err as Error).message}`, "error");
     } finally {
@@ -76,8 +76,9 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
   };
 
   const applySuggestions = () => {
-    setInput(mergeRelationInputWithSuggestions(input, suggestions));
-    notify("推荐关联已加入待保存列表", "success");
+    const nextInput = mergeRelationInputWithSuggestions(input, suggestions);
+    setInput(nextInput);
+    void saveRelations(nextInput, "推荐关联已应用并保存");
   };
 
   const outgoing = relations.filter((relation) => relation.direction === "outgoing");
@@ -103,7 +104,7 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
             onInput={(e) => setInput((e.target as HTMLTextAreaElement).value)}
           />
           <div class="relation-editor-actions">
-            <button class="btn relation-save-button" onClick={saveRelations} disabled={saving || !input.trim()}>
+            <button class="btn relation-save-button" onClick={() => saveRelations()} disabled={saving || !input.trim()}>
               {saving ? "保存中..." : "保存引用"}
             </button>
           </div>
@@ -123,8 +124,8 @@ export function RelationPanel({ memoUid, canEdit }: RelationPanelProps) {
               );
             })}
           </div>
-          <button class="btn relation-save-button" onClick={applySuggestions}>
-            应用推荐
+          <button class="btn relation-save-button" onClick={applySuggestions} disabled={saving}>
+            {saving ? "保存中..." : "应用并保存推荐"}
           </button>
         </div>
       )}

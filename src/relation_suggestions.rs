@@ -21,14 +21,14 @@ pub(crate) async fn request_ai_relation_suggestions(
             {
                 "role": "user",
                 "content": json!({
-                    "task": "从 candidates 中选择最多 8 条和 currentMemo 最相关的笔记。返回 {\"suggestions\":[{\"memo\":\"memos/<uid>\",\"reason\":\"简短原因\",\"confidence\":0.0到1.0}]}。",
+                    "task": "从 candidates 中选择最多 12 条和 currentMemo 最相关的笔记。返回 {\"suggestions\":[{\"memo\":\"memos/<uid>\",\"reason\":\"简短原因\",\"confidence\":0.0到1.0}]}。",
                     "currentMemo": {
                         "memo": format!("memos/{}", memo.uid),
                         "content": truncate(&memo.content, 1200)
                     },
                     "candidates": candidates.iter().map(|candidate| json!({
                         "memo": format!("memos/{}", candidate.uid),
-                        "content": truncate(&candidate.content, 600),
+                        "content": truncate(&candidate.content, 420),
                         "tags": candidate.tags
                     })).collect::<Vec<_>>()
                 }).to_string()
@@ -129,7 +129,7 @@ pub(crate) fn parse_ai_relation_suggestions(
     raw: &str,
     candidate_content: &HashMap<String, String>,
 ) -> Vec<Value> {
-    pub(crate) const SUGGESTION_LIMIT: usize = 8;
+    pub(crate) const SUGGESTION_LIMIT: usize = 12;
 
     let parsed = serde_json::from_str::<Value>(raw).unwrap_or_else(|_| json!({}));
     let list = parsed
@@ -197,14 +197,22 @@ fn extract_payload_tags(payload: &str) -> Vec<String> {
 fn extract_keywords(content: &str) -> Vec<String> {
     let mut words = BTreeSet::new();
     let mut current = String::new();
+    let mut cjk = String::new();
     for ch in content.to_lowercase().chars() {
-        if ch.is_alphanumeric() || ch == '_' || ch == '-' {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            push_cjk_keywords(&mut words, &mut cjk);
             current.push(ch);
         } else {
             push_keyword(&mut words, &mut current);
+            if is_cjk_char(ch) {
+                cjk.push(ch);
+            } else {
+                push_cjk_keywords(&mut words, &mut cjk);
+            }
         }
     }
     push_keyword(&mut words, &mut current);
+    push_cjk_keywords(&mut words, &mut cjk);
     words.into_iter().take(80).collect()
 }
 
@@ -215,6 +223,25 @@ fn push_keyword(words: &mut BTreeSet<String>, current: &mut String) {
     } else {
         current.clear();
     }
+}
+
+fn push_cjk_keywords(words: &mut BTreeSet<String>, current: &mut String) {
+    let chars: Vec<char> = current.chars().collect();
+    if chars.len() >= 2 {
+        for width in [2, 3] {
+            for window in chars.windows(width) {
+                words.insert(window.iter().collect());
+            }
+        }
+    }
+    current.clear();
+}
+
+fn is_cjk_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF
+    )
 }
 
 fn clamp_confidence(value: f64) -> f64 {
