@@ -1,9 +1,14 @@
 use super::*;
 use serde::Deserialize;
 
-const RELATION_REBUILD_BATCH_SIZE: i64 = 8;
-const RELATION_REBUILD_CANDIDATE_LIMIT: i64 = 5000;
+const RELATION_REBUILD_BATCH_SIZE: i64 = 16;
+const RELATION_REBUILD_SCHEDULER_BATCH_SIZE: i64 = 32;
 const RELATION_REBUILD_AI_CANDIDATE_LIMIT: usize = 45;
+const RELATION_REBUILD_RECALL_LIMIT: i64 = 240;
+const RELATION_REBUILD_TOKEN_LIMIT_PER_MEMO: usize = 32;
+const RELATION_REBUILD_TOKEN_INSERT_BATCH_SIZE: usize = 200;
+const RELATION_REBUILD_TOKEN_INDEX_PAGE_SIZE: i64 = 200;
+const RELATION_REBUILD_MAX_AI_CALLS_PER_STEP: usize = 4;
 const RELATION_REBUILD_MAX_RELATIONS_PER_MEMO: usize = 12;
 const RELATION_REBUILD_MIN_LOCAL_SCORE: f64 = 4.0;
 const RELATION_REBUILD_MIN_AI_SCORE: f64 = 6.0;
@@ -47,7 +52,7 @@ pub(crate) async fn rebuild_relations_batch_route(
         .get("batchSize")
         .and_then(Value::as_i64)
         .unwrap_or(RELATION_REBUILD_BATCH_SIZE)
-        .clamp(1, 16);
+        .clamp(1, 32);
     let task =
         process_relation_rebuild_task(env, task_id, Some(viewer.id), batch_size, Some(viewer))
             .await?;
@@ -123,9 +128,14 @@ pub(crate) async fn process_pending_relation_rebuild_tasks(
         .await?;
     let tasks: Vec<DbRelationRebuildTask> = rows.results()?;
     for task in tasks {
-        let _ =
-            process_relation_rebuild_task(env, &task.id, None, RELATION_REBUILD_BATCH_SIZE, None)
-                .await;
+        let _ = process_relation_rebuild_task(
+            env,
+            &task.id,
+            None,
+            RELATION_REBUILD_SCHEDULER_BATCH_SIZE,
+            None,
+        )
+        .await;
     }
     Ok(())
 }
@@ -152,13 +162,18 @@ async fn start_relation_rebuild_task(
     let now = unix_now();
     let database = db(env)?;
     database
-        .prepare("DELETE FROM relation_rebuild_candidate WHERE task_id IN (SELECT id FROM relation_rebuild_task WHERE user_id = ? AND status != 'RUNNING')")
+        .prepare("UPDATE relation_rebuild_task SET status = 'CANCELED', updated_ts = ? WHERE user_id = ? AND status = 'RUNNING'")
+        .bind(&[js_num(now), js_num(viewer.id)])?
+        .run()
+        .await?;
+    database
+        .prepare("DELETE FROM relation_rebuild_candidate_token WHERE task_id IN (SELECT id FROM relation_rebuild_task WHERE user_id = ? AND status != 'RUNNING')")
         .bind(&[js_num(viewer.id)])?
         .run()
         .await?;
     database
-        .prepare("UPDATE relation_rebuild_task SET status = 'CANCELED', updated_ts = ? WHERE user_id = ? AND status = 'RUNNING'")
-        .bind(&[js_num(now), js_num(viewer.id)])?
+        .prepare("DELETE FROM relation_rebuild_candidate WHERE task_id IN (SELECT id FROM relation_rebuild_task WHERE user_id = ? AND status != 'RUNNING')")
+        .bind(&[js_num(viewer.id)])?
         .run()
         .await?;
     database
@@ -173,11 +188,12 @@ async fn start_relation_rebuild_task(
         .run()
         .await?;
     database
-        .prepare("INSERT INTO relation_rebuild_candidate (task_id, memo_id, user_id, uid, created_ts, updated_ts, content, visibility, pinned, payload) SELECT ?, memo.id, memo.creator_id, memo.uid, memo.created_ts, memo.updated_ts, memo.content, memo.visibility, memo.pinned, memo.payload FROM memo WHERE memo.creator_id = ? AND memo.row_status = 'NORMAL' ORDER BY memo.updated_ts DESC, memo.id DESC LIMIT ?")
-        .bind(&[task_id.clone().into(), js_num(viewer.id), js_num(RELATION_REBUILD_CANDIDATE_LIMIT)])?
+        .prepare("INSERT INTO relation_rebuild_candidate (task_id, memo_id, user_id, uid, created_ts, updated_ts, content, visibility, pinned, payload) SELECT ?, memo.id, memo.creator_id, memo.uid, memo.created_ts, memo.updated_ts, memo.content, memo.visibility, memo.pinned, memo.payload FROM memo WHERE memo.creator_id = ? AND memo.row_status = 'NORMAL'")
+        .bind(&[task_id.clone().into(), js_num(viewer.id)])?
         .run()
         .await?;
     let total = count_relation_rebuild_task_candidates(env, &task_id).await?;
+    index_relation_rebuild_candidates(env, &task_id).await?;
     database
         .prepare("UPDATE relation_rebuild_task SET total = ?, updated_ts = ? WHERE id = ?")
         .bind(&[js_num(total), js_num(unix_now()), task_id.clone().into()])?
@@ -201,28 +217,35 @@ async fn process_relation_rebuild_task(
     let replace_existing = task.mode == "replace";
     let batch = list_relation_rebuild_task_batch(env, &task.id, task.cursor, batch_size).await?;
     let batch_processed = batch.len() as i64;
-    let candidates = list_relation_rebuild_task_candidates(env, &task.id).await?;
-    let candidate_content: HashMap<String, String> = candidates
-        .iter()
-        .map(|candidate| (candidate.uid.clone(), candidate.content.clone()))
-        .collect();
-    let candidate_ids: HashMap<String, i64> = candidates
-        .iter()
-        .map(|candidate| (candidate.uid.clone(), candidate.id))
-        .collect();
-    let relation_candidates: Vec<RelationCandidate> = candidates
-        .iter()
-        .map(relation_candidate_from_memo)
-        .collect();
     let settings = resolve_ai_settings(env).await?;
     let use_ai = !settings.api_key.trim().is_empty();
     let mut created = 0usize;
     let mut updated = 0usize;
     let mut skipped = 0usize;
     let mut ai_used = false;
+    let mut ai_calls = 0usize;
     let mut warnings = parse_relation_rebuild_warnings(&task.warnings);
 
     for memo in &batch {
+        let candidates = list_relation_rebuild_recall_candidates(
+            env,
+            &task.id,
+            memo,
+            RELATION_REBUILD_RECALL_LIMIT,
+        )
+        .await?;
+        let candidate_content: HashMap<String, String> = candidates
+            .iter()
+            .map(|candidate| (candidate.uid.clone(), candidate.content.clone()))
+            .collect();
+        let candidate_ids: HashMap<String, i64> = candidates
+            .iter()
+            .map(|candidate| (candidate.uid.clone(), candidate.id))
+            .collect();
+        let relation_candidates: Vec<RelationCandidate> = candidates
+            .iter()
+            .map(relation_candidate_from_memo)
+            .collect();
         let current = relation_candidate_from_memo(memo);
         let ranked = rank_relation_candidates(
             &current,
@@ -240,16 +263,24 @@ async fn process_relation_rebuild_task(
             skipped += 1;
             continue;
         }
-        let suggestions = if use_ai && top_score >= RELATION_REBUILD_MIN_AI_SCORE {
+        let suggestions = if use_ai
+            && top_score >= RELATION_REBUILD_MIN_AI_SCORE
+            && ai_calls < RELATION_REBUILD_MAX_AI_CALLS_PER_STEP
+        {
             match request_ai_relation_suggestions(&settings, memo, &ranked, &candidate_content)
                 .await
             {
                 Ok(items) if !items.is_empty() => {
                     ai_used = true;
+                    ai_calls += 1;
                     items
                 }
-                Ok(_) => local_relation_suggestions(&ranked),
+                Ok(_) => {
+                    ai_calls += 1;
+                    local_relation_suggestions(&ranked)
+                }
                 Err(error) => {
+                    ai_calls += 1;
                     if warnings.len() < 3 {
                         warnings.push(error.message);
                     }
@@ -298,6 +329,7 @@ async fn process_relation_rebuild_task(
     let updated_task = get_relation_rebuild_task(env, &task.id, owner_id).await?;
     if done {
         record_relation_rebuild_audit(env, actor, &updated_task).await;
+        cleanup_relation_rebuild_candidates(env, &task.id).await?;
     }
     Ok(updated_task)
 }
@@ -322,6 +354,14 @@ async fn ensure_relation_rebuild_tables(env: &Env) -> std::result::Result<(), Ap
         .await?;
     database
         .prepare("CREATE INDEX IF NOT EXISTS idx_relation_rebuild_candidate_user ON relation_rebuild_candidate(task_id, user_id)")
+        .run()
+        .await?;
+    database
+        .prepare("CREATE TABLE IF NOT EXISTS relation_rebuild_candidate_token (task_id TEXT NOT NULL, token TEXT NOT NULL, memo_id INTEGER NOT NULL, PRIMARY KEY (task_id, token, memo_id))")
+        .run()
+        .await?;
+    database
+        .prepare("CREATE INDEX IF NOT EXISTS idx_relation_rebuild_candidate_token_memo ON relation_rebuild_candidate_token(task_id, memo_id)")
         .run()
         .await?;
     Ok(())
@@ -382,15 +422,114 @@ async fn list_relation_rebuild_task_batch(
     rows.results().map_err(AppError::from)
 }
 
-async fn list_relation_rebuild_task_candidates(
+async fn list_relation_rebuild_task_candidates_page(
     env: &Env,
     task_id: &str,
+    cursor: i64,
+    limit: i64,
 ) -> std::result::Result<Vec<DbMemo>, AppError> {
-    let rows = db(env)?.prepare("SELECT memo_id AS id, uid, user_id AS creator_id, '' AS creator_username, '' AS creator_nickname, created_ts, updated_ts, 'NORMAL' AS row_status, content, visibility, pinned, payload FROM relation_rebuild_candidate WHERE task_id = ? ORDER BY updated_ts DESC, memo_id DESC")
-        .bind(&[task_id.into()])?
+    let rows = db(env)?.prepare("SELECT memo_id AS id, uid, user_id AS creator_id, '' AS creator_username, '' AS creator_nickname, created_ts, updated_ts, 'NORMAL' AS row_status, content, visibility, pinned, payload FROM relation_rebuild_candidate WHERE task_id = ? AND memo_id > ? ORDER BY memo_id ASC LIMIT ?")
+        .bind(&[task_id.into(), js_num(cursor), js_num(limit)])?
         .all()
         .await?;
     rows.results().map_err(AppError::from)
+}
+
+async fn index_relation_rebuild_candidates(
+    env: &Env,
+    task_id: &str,
+) -> std::result::Result<(), AppError> {
+    let database = db(env)?;
+    database
+        .prepare("DELETE FROM relation_rebuild_candidate_token WHERE task_id = ?")
+        .bind(&[task_id.into()])?
+        .run()
+        .await?;
+
+    let mut statements = Vec::new();
+    let mut cursor = 0;
+    loop {
+        let candidates = list_relation_rebuild_task_candidates_page(
+            env,
+            task_id,
+            cursor,
+            RELATION_REBUILD_TOKEN_INDEX_PAGE_SIZE,
+        )
+        .await?;
+        if candidates.is_empty() {
+            break;
+        }
+        cursor = candidates
+            .last()
+            .map(|candidate| candidate.id)
+            .unwrap_or(cursor);
+        for candidate in candidates {
+            let relation_candidate = relation_candidate_from_memo(&candidate);
+            for token in relation_candidate_search_terms(
+                &relation_candidate,
+                RELATION_REBUILD_TOKEN_LIMIT_PER_MEMO,
+            ) {
+                statements.push(
+                    database
+                        .prepare("INSERT OR IGNORE INTO relation_rebuild_candidate_token (task_id, token, memo_id) VALUES (?, ?, ?)")
+                        .bind(&[task_id.into(), token.into(), js_num(candidate.id)])?,
+                );
+                if statements.len() >= RELATION_REBUILD_TOKEN_INSERT_BATCH_SIZE {
+                    database.batch(std::mem::take(&mut statements)).await?;
+                }
+            }
+        }
+    }
+    if !statements.is_empty() {
+        database.batch(statements).await?;
+    }
+    Ok(())
+}
+
+async fn list_relation_rebuild_recall_candidates(
+    env: &Env,
+    task_id: &str,
+    memo: &DbMemo,
+    limit: i64,
+) -> std::result::Result<Vec<DbMemo>, AppError> {
+    let current = relation_candidate_from_memo(memo);
+    let tokens = relation_candidate_search_terms(&current, RELATION_REBUILD_TOKEN_LIMIT_PER_MEMO);
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = placeholders(tokens.len());
+    let mut values: Vec<JsValue> = Vec::with_capacity(tokens.len() + 3);
+    values.push(task_id.into());
+    values.extend(tokens.into_iter().map(JsValue::from));
+    values.push(js_num(memo.id));
+    values.push(js_num(limit));
+    let rows = db(env)?
+        .prepare(format!(
+            "SELECT c.memo_id AS id, c.uid, c.user_id AS creator_id, '' AS creator_username, '' AS creator_nickname, c.created_ts, c.updated_ts, 'NORMAL' AS row_status, c.content, c.visibility, c.pinned, c.payload FROM relation_rebuild_candidate_token t JOIN relation_rebuild_candidate c ON c.task_id = t.task_id AND c.memo_id = t.memo_id WHERE t.task_id = ? AND t.token IN ({}) AND c.memo_id != ? GROUP BY c.memo_id ORDER BY COUNT(*) DESC, c.updated_ts DESC, c.memo_id DESC LIMIT ?",
+            placeholders
+        ))
+        .bind(&values)?
+        .all()
+        .await?;
+    rows.results().map_err(AppError::from)
+}
+
+async fn cleanup_relation_rebuild_candidates(
+    env: &Env,
+    task_id: &str,
+) -> std::result::Result<(), AppError> {
+    let database = db(env)?;
+    database
+        .prepare("DELETE FROM relation_rebuild_candidate_token WHERE task_id = ?")
+        .bind(&[task_id.into()])?
+        .run()
+        .await?;
+    database
+        .prepare("DELETE FROM relation_rebuild_candidate WHERE task_id = ?")
+        .bind(&[task_id.into()])?
+        .run()
+        .await?;
+    Ok(())
 }
 
 fn parse_relation_rebuild_warnings(raw: &str) -> Vec<String> {

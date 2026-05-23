@@ -129,6 +129,16 @@ fn relation_rebuild_migration_creates_task_snapshot_tables() {
 }
 
 #[test]
+fn relation_rebuild_token_migration_creates_recall_index() {
+    let migration = std::fs::read_to_string("migrations/0009_relation_rebuild_token_index.sql")
+        .expect("relation rebuild token migration");
+
+    assert!(migration.contains("CREATE TABLE IF NOT EXISTS relation_rebuild_candidate_token"));
+    assert!(migration.contains("PRIMARY KEY (task_id, token, memo_id)"));
+    assert!(migration.contains("idx_relation_rebuild_candidate_token_memo"));
+}
+
+#[test]
 fn backup_encryption_keyring_parses_json_and_comma_formats() {
     let json_keys = parse_backup_encryption_keys(r#"{"old":"secret-old","new":"secret-new"}"#);
     assert!(json_keys.contains(&BackupEncryptionKey {
@@ -585,6 +595,21 @@ fn relation_ranking_uses_chinese_content_beyond_recent_items() {
     let ranked = rank_relation_candidates(&current, &candidates, 45);
 
     assert_eq!(ranked[0].uid, "m_old_related");
+}
+
+#[test]
+fn relation_candidate_search_terms_include_tags_and_keywords() {
+    let candidate = RelationCandidate {
+        uid: "m_current".to_string(),
+        content: "英语阅读和长难句拆解".to_string(),
+        payload: json!({ "tags": ["Study"] }).to_string(),
+        updated_ts: 3000,
+    };
+
+    let terms = relation_candidate_search_terms(&candidate, 32);
+
+    assert!(terms.contains(&"tag:study".to_string()));
+    assert!(terms.iter().any(|term| term.starts_with("kw:英语")));
 }
 
 #[test]

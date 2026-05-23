@@ -74,6 +74,23 @@ pub(crate) fn relation_candidate_from_memo(memo: &DbMemo) -> RelationCandidate {
     }
 }
 
+pub(crate) fn relation_candidate_search_terms(
+    candidate: &RelationCandidate,
+    limit: usize,
+) -> Vec<String> {
+    let mut terms = BTreeSet::new();
+    for tag in extract_payload_tags(&candidate.payload) {
+        let tag = tag.trim().to_lowercase();
+        if !tag.is_empty() {
+            terms.insert(format!("tag:{}", tag));
+        }
+    }
+    for keyword in extract_keywords(&candidate.content) {
+        terms.insert(format!("kw:{}", keyword));
+    }
+    terms.into_iter().take(limit).collect()
+}
+
 pub(crate) fn rank_relation_candidates(
     current: &RelationCandidate,
     candidates: &[RelationCandidate],
