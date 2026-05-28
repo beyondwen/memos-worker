@@ -576,10 +576,8 @@ textarea.form-input { resize: vertical; min-height: 80px; }
   font-weight: 750;
 }
 .date-popover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: 230;
+  position: fixed;
+  z-index: 1200;
   width: 288px;
   padding: 12px;
   border: 1px solid rgba(215,211,202,0.95);

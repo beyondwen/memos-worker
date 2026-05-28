@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { createPortal } from "preact/compat";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { buildDateTimeLocal, formatDateTimeLocalLabel, nowDateTimeLocal } from "../richText";
 
 interface DateTimePickerProps {
@@ -20,14 +21,21 @@ interface CalendarDay {
   isToday: boolean;
 }
 
+const POPOVER_WIDTH = 288;
+const POPOVER_MARGIN = 12;
+const POPOVER_GAP = 8;
+
 export function DateTimePicker({ value, onChange }: DateTimePickerProps) {
   const selected = parseDateTime(value);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState(() => new Date(selected.year, selected.month - 1, 1));
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverPosition = useFloatingPopover(open, triggerRef, popoverRef);
   const days = useMemo(() => buildCalendarDays(view, selected.dateKey), [selected.dateKey, view]);
 
-  useDismiss(open, rootRef, () => setOpen(false));
+  useDismiss(open, [rootRef, popoverRef], () => setOpen(false));
 
   const chooseDay = (key: string) => {
     const [year, month, day] = key.split("-").map(Number);
@@ -46,13 +54,17 @@ export function DateTimePicker({ value, onChange }: DateTimePickerProps) {
 
   return (
     <div ref={rootRef} class="date-picker">
-      <button type="button" class="date-picker-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+      <button ref={triggerRef} type="button" class="date-picker-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
         <span>日期</span>
         <strong>{formatDateTimeLocalLabel(value)}</strong>
         <span aria-hidden="true">⌄</span>
       </button>
-      {open && (
-        <div class="date-popover">
+      {open && popoverPosition && createPortal(
+        <div
+          ref={popoverRef}
+          class="date-popover"
+          style={{ left: `${popoverPosition.left}px`, top: `${popoverPosition.top}px` }}
+        >
           <CalendarHeader view={view} setView={setView} />
           <CalendarGrid days={days} chooseDay={chooseDay} />
           <div class="time-row">
@@ -69,7 +81,8 @@ export function DateTimePicker({ value, onChange }: DateTimePickerProps) {
             <button type="button" onClick={setNow}>现在</button>
             <button type="button" onClick={() => setOpen(false)}>完成</button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -80,19 +93,26 @@ export function DatePicker({ value, onChange, placeholder }: DatePickerProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState(() => new Date(parsed.year, parsed.month - 1, 1));
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverPosition = useFloatingPopover(open, triggerRef, popoverRef);
   const days = useMemo(() => buildCalendarDays(view, value), [value, view]);
 
-  useDismiss(open, rootRef, () => setOpen(false));
+  useDismiss(open, [rootRef, popoverRef], () => setOpen(false));
 
   return (
     <div ref={rootRef} class="date-picker date-only-picker">
-      <button type="button" class="date-picker-trigger" onClick={() => setOpen((next) => !next)} aria-expanded={open}>
+      <button ref={triggerRef} type="button" class="date-picker-trigger" onClick={() => setOpen((next) => !next)} aria-expanded={open}>
         <span>{placeholder}</span>
         <strong>{value || "未选择"}</strong>
         <span aria-hidden="true">⌄</span>
       </button>
-      {open && (
-        <div class="date-popover">
+      {open && popoverPosition && createPortal(
+        <div
+          ref={popoverRef}
+          class="date-popover"
+          style={{ left: `${popoverPosition.left}px`, top: `${popoverPosition.top}px` }}
+        >
           <CalendarHeader view={view} setView={setView} />
           <CalendarGrid
             days={days}
@@ -105,7 +125,8 @@ export function DatePicker({ value, onChange, placeholder }: DatePickerProps) {
             <button type="button" onClick={() => onChange("")}>清除</button>
             <button type="button" onClick={() => setOpen(false)}>完成</button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -141,11 +162,63 @@ function CalendarGrid({ days, chooseDay }: { days: CalendarDay[]; chooseDay: (ke
   );
 }
 
-function useDismiss(open: boolean, rootRef: { current: HTMLElement | null }, close: () => void) {
+function useFloatingPopover(
+  open: boolean,
+  triggerRef: { current: HTMLElement | null },
+  popoverRef: { current: HTMLElement | null },
+) {
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPosition(null);
+      return;
+    }
+
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const trigger = triggerRef.current;
+        if (!trigger) return;
+
+        const triggerRect = trigger.getBoundingClientRect();
+        const width = popoverRef.current?.offsetWidth || POPOVER_WIDTH;
+        const height = popoverRef.current?.offsetHeight || 320;
+        const maxLeft = Math.max(POPOVER_MARGIN, window.innerWidth - width - POPOVER_MARGIN);
+        const left = Math.max(POPOVER_MARGIN, Math.min(triggerRect.right - width, maxLeft));
+        const belowTop = triggerRect.bottom + POPOVER_GAP;
+        const aboveTop = triggerRect.top - height - POPOVER_GAP;
+        const fitsBelow = belowTop + height <= window.innerHeight - POPOVER_MARGIN;
+        const top = fitsBelow || aboveTop < POPOVER_MARGIN ? belowTop : aboveTop;
+
+        setPosition({
+          left,
+          top: Math.max(POPOVER_MARGIN, Math.min(top, window.innerHeight - height - POPOVER_MARGIN)),
+        });
+      });
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, popoverRef, triggerRef]);
+
+  return position;
+}
+
+function useDismiss(open: boolean, refs: Array<{ current: HTMLElement | null }>, close: () => void) {
   useEffect(() => {
     if (!open) return;
     const onPointer = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close();
+      const target = event.target as Node;
+      if (refs.some((ref) => ref.current?.contains(target))) return;
+      close();
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
@@ -156,7 +229,7 @@ function useDismiss(open: boolean, rootRef: { current: HTMLElement | null }, clo
       document.removeEventListener("mousedown", onPointer);
       document.removeEventListener("keydown", onKey);
     };
-  }, [close, open, rootRef]);
+  }, [close, open, refs]);
 }
 
 function buildCalendarDays(view: Date, selectedKey: string): CalendarDay[] {
